@@ -13,11 +13,12 @@ use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
 use chrono::{DateTime, Local};
+use levenshtein::levenshtein;
 use murmur2::{murmur2, KAFKA_SEED};
 use rdkafka::consumer::{Consumer, ConsumerContext};
 use tokio::runtime::Handle;
 use tokio::time::timeout;
-use crate::highlight::{format, BOLD, GREY, RESET};
+use crate::highlight::{format, BOLD, GREY, format_error, format_success, RESET};
 
 /// Timeout for the Kafka operations
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -84,19 +85,18 @@ where
 {
     let topic = topic_or_partition.topic();
 
-    let metadata = consumer.fetch_metadata(Some(&topic), TIMEOUT)?;
+    let num_partitions = fetch_number_of_partitions(consumer, topic).await?;
 
-    let topic_metadata =
-        metadata.topics().into_iter().find(|t| t.name() == topic)
-            .ok_or(format!("Topic {topic} was not found."))?;
-
-    let partition = partition_for_key(key, topic_metadata.partitions().len());
+    let partition = partition_for_key(key, num_partitions);
 
     match topic_or_partition {
         TopicOrPartition::Topic(_) => {}
         TopicOrPartition::TopicPartition(_, configured_partition) => {
             if partition != *configured_partition {
-                return Err(KiekException::boxed(format!("Given key \"{key}\" is expected in partition {partition} which does not match configured partition {configured_partition}.", key = key)));
+                return Err(KiekException::boxed(
+                    format!("Given key \"{key}\" is expected in partition {partition} which does not match configured partition {configured}.",
+                            partition = format_success(partition.to_string(), true),
+                            configured = format_error(configured_partition.to_string(), true))));
             }
         }
     }
@@ -123,11 +123,7 @@ where
 {
     let topic = topic_or_partition.topic();
 
-    let metadata = consumer.fetch_metadata(Some(topic), TIMEOUT)?;
-
-    let topic_metadata =
-        metadata.topics().into_iter().find(|t| t.name() == topic)
-            .ok_or(format!("Topic {topic} was not found."))?;
+    let num_partitions = fetch_number_of_partitions(consumer, topic).await?;
 
     let offset = offset_for(start_offset);
 
@@ -135,18 +131,17 @@ where
         match topic_or_partition {
             TopicOrPartition::Topic(_) => {
                 let partition_offsets: HashMap<(String, i32), Offset> =
-                    topic_metadata
-                        .partitions().iter()
-                        .map(|p| { ((topic.to_string(), p.id()), offset) })
+                    (0..num_partitions)
+                        .map(|partition| { ((topic.to_string(), partition as i32), offset) })
                         .collect();
 
-                info!("Assigning all {} partitions for {topic}.", partition_offsets.len());
+                info!("Assigning all {num_partitions} partitions for {topic}.");
 
                 TopicPartitionList::from_topic_map(&partition_offsets)?
             }
             TopicOrPartition::TopicPartition(_, partition) => {
-                if *partition > topic_metadata.partitions().len() {
-                    return Err(KiekException::boxed(format!("Partition {partition} is out of range for {topic} with {num} partitions.", num = topic_metadata.partitions().len())));
+                if *partition > num_partitions {
+                    return Err(KiekException::boxed(format!("Partition {partition} is out of range for {topic} with {num_partitions} partitions.")));
                 }
 
                 let partition_offsets: HashMap<(String, i32), Offset> =
@@ -161,6 +156,66 @@ where
     consumer.assign(&topic_partition_list)?;
 
     Ok(())
+}
+
+///
+/// Fetches the number of partitions for topic with given name.
+///
+async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str) -> Result<usize>
+where
+    Ctx: 'static + ConsumerContext,
+{
+    let metadata = consumer.fetch_metadata(Some(&topic), TIMEOUT)?;
+
+    match metadata.topics().first() {
+        Some(topic_metadata) if topic_metadata.partitions().len() > 0 =>
+            Ok(topic_metadata.partitions().len()),
+        _ => {
+            unknown_topic(consumer, topic)
+        }
+    }
+}
+
+///
+/// Generates a graceful error message for an unknown topic.
+/// Looks for a very similar topic name or lists all available topics by similarity.
+///
+fn unknown_topic<Ctx, A>(consumer: &StreamConsumer<Ctx>, topic: &str) -> Result<A>
+where
+    Ctx: 'static + ConsumerContext,
+{
+    let metadata = consumer.fetch_metadata(None, TIMEOUT)?;
+    let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
+    Err(KiekException::boxed(unknown_topic_message(topic, &topic_names)))
+}
+
+const MAX_DISTANCE: usize = 4;
+const MAX_TOPICS: usize = 15;
+
+///
+/// Generates a graceful error message for an unknown topic based the Levinshtein distance to the
+/// existing topics.
+///
+fn unknown_topic_message(topic: &str, topic_names: &Vec<String>) -> String {
+    let mut similar_topics: Vec<(String, usize)> = topic_names.iter()
+        .map(|t| (t.clone(), levenshtein(topic, t)))
+        .collect();
+    similar_topics.sort_by(|a, b| a.1.cmp(&b.1));
+
+    let topic = format_error(topic, true);
+
+    if topic_names.len() == 0 {
+        format!("Topic {topic} does not exist. In fact, there are no topics on the broker.")
+    } else {
+        let most_similar = similar_topics.first().unwrap();
+        if topic_names.len() == 1 || most_similar.1 <= MAX_DISTANCE {
+            format!("Topic {topic} does not exist. Did you mean {similar}?", similar = format_success(&most_similar.0, true))
+        } else {
+            let topics = similar_topics.iter().take(MAX_TOPICS).map(|(t, _)| format!(" - {t}")).collect::<Vec<String>>().join("\n");
+            let more_info = if similar_topics.len() > MAX_TOPICS { format!("\n...{} more", similar_topics.len() - MAX_TOPICS) } else { "".to_string() };
+            format!("Topic {topic} does not exist. Available topics are:\n{topics}{more_info}")
+        }
+    }
 }
 
 fn offset_for(start_offset: StartOffset) -> Offset {
@@ -279,5 +334,24 @@ mod tests {
         assert_eq!(partition_for_key("03b40832-b061-703d-4d68-895dee9e1f90", 6), 4);
         assert_eq!(partition_for_key("control+e2e-86d8ra-delete", 6), 2);
         assert_eq!(partition_for_key("control+e2e-lhwcl2-delete", 6), 1);
+    }
+
+    #[test]
+    fn test_non_existing_topic_errors() {
+        let topic_names = vec!["topic".to_string()];
+
+        assert_eq!(unknown_topic_message("topik", &topic_names),
+                   format!("Topic {topic} does not exist. Did you mean {similar}?", topic = format_error("topik", true), similar = format_success("topic", true)));
+
+        let topic_names = vec!["topic".to_string(), "something-totally-different".to_string()];
+
+        assert_eq!(unknown_topic_message("topik", &topic_names),
+                   format!("Topic {topic} does not exist. Did you mean {similar}?", topic = format_error("topik", true), similar = format_success("topic", true)));
+
+        let mut topic_names = vec!["abcdefg".to_string(), "abcdefgh".to_string(), "abcdefghi".to_string()];
+        topic_names.reverse();
+
+        assert_eq!(unknown_topic_message("topic", &topic_names),
+                   format!("Topic {topic} does not exist. Available topics are:\n - abcdefg\n - abcdefgh\n - abcdefghi", topic = format_error("topic", true)));
     }
 }

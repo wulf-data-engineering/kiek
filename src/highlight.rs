@@ -1,12 +1,16 @@
-use serde_json::{Value as JsonValue};
-use avro_rs::types::{Value as AvroValue};
-use std::fmt::Display;
+use avro_rs::types::Value as AvroValue;
 use chrono::{DateTime, Datelike, NaiveDate};
 use lazy_static::lazy_static;
+use serde_json::Value as JsonValue;
+use std::fmt::Display;
 
 pub const RESET: &str = "\u{001B}[0m";
 
 pub const BOLD: &str = "\u{001B}[1m";
+
+pub const ERROR: &str = "\u{001B}[38;5;124;1m";
+
+pub const SUCCESS: &str = "\u{001B}[38;5;28;1m";
 
 pub const SEPARATOR: &str = "\u{001B}[38;5;248m";
 
@@ -37,6 +41,14 @@ pub fn format<S: Into<String>>(value: S, code: &str, highlight: bool) -> String 
     } else {
         value.into()
     }
+}
+
+pub fn format_error<S: Into<String>>(value: S, highlight: bool) -> String {
+    format(value, ERROR, highlight)
+}
+
+pub fn format_success<S: Into<String>>(value: S, highlight: bool) -> String {
+    format(value, SUCCESS, highlight)
 }
 
 pub fn format_null(highlight: bool) -> String {
