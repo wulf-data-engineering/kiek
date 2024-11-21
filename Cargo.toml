@@ -1,0 +1,31 @@
+[package]
+name = "kiek"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Generic
+lazy_static = "*"
+tokio = { version = "*", features = ["full"] }
+futures = "*"
+async-trait = "*"
+log = "*"
+simple_logger = "*"
+serde = "*"
+chrono = "*"
+
+# AWS
+aws-types = "*"
+aws-runtime = "*"
+aws-config = { version = "*", features = ["rustls"] }
+aws-sdk-sts = { version = "*", features = ["rustls"] }
+aws-sdk-glue = "*"
+
+# Specific application
+clap = { version = "*", features = ["derive"] }
+rdkafka ={ version = "*", features = ["default", "ssl"] }
+aws-msk-iam-sasl-signer = "*"
+uuid = { version = "1.11.0", features = ["v4"] }
+avro-rs = "*"
+serde_json = "*"
+murmur2 = "*"
