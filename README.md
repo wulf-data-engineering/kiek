@@ -4,7 +4,8 @@
 
 * in AWS MSK behind IAM authentication,
 * requiring assuming an IAM role,
-* AVRO encoded messages with schemas in AWS Glue Schema Registry...
+containing AVRO encoded messages with schemas in AWS Glue Schema Registry,
+* in different development environments ...
 
 `kiek` **analyzes the messages** in a topic, **looks up corresponding schemas** if necessary and prints the payloads with syntax highlighting in a **human-readable format**.
 
@@ -12,6 +13,7 @@
 
 ### Publish
 
+- CLI Interface: limit/max-messages
 - Failing Gracefully and Explaining Errors: error handling, auth failure, connection loss, schema lookup failure
 - Integration Testing
 - CI/CD
@@ -23,6 +25,7 @@
     - Support regular Kafka, Redpanda
     - Support Confluent Schema Registry
     - Explain error connecting / failing to look up schemas
+    - Topic Profiles / --env for environment profiles
 - Navigation
     - partition selection
     - search since timestamp (fixed, relative)

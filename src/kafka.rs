@@ -1,4 +1,4 @@
-use crate::{CoreResult, Result};
+use crate::{CoreResult, KiekException, Result};
 use aws_msk_iam_sasl_signer::generate_auth_token_from_credentials_provider;
 use aws_sdk_sts::config::SharedCredentialsProvider;
 use aws_types::region::Region;
@@ -17,7 +17,7 @@ use murmur2::{murmur2, KAFKA_SEED};
 use rdkafka::consumer::{Consumer, ConsumerContext};
 use tokio::runtime::Handle;
 use tokio::time::timeout;
-use crate::highlight::{format, format_null, BOLD, GREY, RESET};
+use crate::highlight::{format, BOLD, GREY, RESET};
 
 /// Timeout for the Kafka operations
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -36,7 +36,7 @@ pub fn create_config<S: Into<String>>(bootstrap_servers: S) -> ClientConfig {
 ///
 /// Create a Kafka consumer to connect to an MSK cluster with IAM authentication.
 ///
-pub async fn create_msk_consumer(bootstrap_servers: String, credentials_provider: SharedCredentialsProvider, region: Region) -> Result<StreamConsumer<IamContext>> {
+pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provider: SharedCredentialsProvider, region: Region) -> Result<StreamConsumer<IamContext>> {
     let mut client_config = create_config(bootstrap_servers);
     client_config.set("security.protocol", "SASL_SSL");
     client_config.set("sasl.mechanism", "OAUTHBEARER");
@@ -52,6 +52,21 @@ pub async fn create_msk_consumer(bootstrap_servers: String, credentials_provider
     Ok(consumer)
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub(crate) enum TopicOrPartition {
+    Topic(String),
+    TopicPartition(String, usize),
+}
+
+impl TopicOrPartition {
+    pub fn topic(&self) -> &str {
+        match self {
+            TopicOrPartition::Topic(topic) => topic,
+            TopicOrPartition::TopicPartition(topic, _) => topic,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum StartOffset {
     Earliest,
@@ -63,11 +78,13 @@ pub(crate) enum StartOffset {
 /// Calculates the partition for the given key and assigns it to the consumer with given offset configuration.
 ///
 
-pub async fn assign_partition_for_key<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str, key: &str, start_offset: StartOffset) -> Result<()>
+pub async fn assign_partition_for_key<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, key: &str, start_offset: StartOffset) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
-    let metadata = consumer.fetch_metadata(Some(topic), TIMEOUT)?;
+    let topic = topic_or_partition.topic();
+
+    let metadata = consumer.fetch_metadata(Some(&topic), TIMEOUT)?;
 
     let topic_metadata =
         metadata.topics().into_iter().find(|t| t.name() == topic)
@@ -75,10 +92,19 @@ where
 
     let partition = partition_for_key(key, topic_metadata.partitions().len());
 
+    match topic_or_partition {
+        TopicOrPartition::Topic(_) => {}
+        TopicOrPartition::TopicPartition(_, configured_partition) => {
+            if partition != *configured_partition {
+                return Err(KiekException::boxed(format!("Given key \"{key}\" is expected in partition {partition} which does not match configured partition {configured_partition}.", key = key)));
+            }
+        }
+    }
+
     let partition_offsets: HashMap<(String, i32), Offset> =
         HashMap::from([((topic.to_string(), partition as i32), offset_for(start_offset))]);
 
-    info!("Assigning partition {partition} for {topic}.");
+    info!("Assigning partition {partition} for {topic} to search for key {key}.");
 
     let topic_partition_list = TopicPartitionList::from_topic_map(&partition_offsets)?;
     consumer.assign(&topic_partition_list)?;
@@ -87,13 +113,16 @@ where
 }
 
 ///
-/// Looks up the number of partitions for given topic in the Kafka cluster.
-/// Assigns all partitions to the consumer with given offset configuration.
+/// Looks up the number of partitions for given topic/partition in the Kafka cluster.
+/// If a partition is given and valid, it assigns it to the consumer with given offset configuration.
+/// If a topic is given, it assigns all partitions to the consumer with given offset configuration.
 ///
-pub async fn assign_all_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str, start_offset: StartOffset) -> Result<()>
+pub async fn assign_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, start_offset: StartOffset) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
+    let topic = topic_or_partition.topic();
+
     let metadata = consumer.fetch_metadata(Some(topic), TIMEOUT)?;
 
     let topic_metadata =
@@ -101,15 +130,33 @@ where
             .ok_or(format!("Topic {topic} was not found."))?;
 
     let offset = offset_for(start_offset);
-    let partition_offsets: HashMap<(String, i32), Offset> =
-        topic_metadata
-            .partitions().iter()
-            .map(|p| { ((topic.to_string(), p.id()), offset) })
-            .collect();
 
-    let topic_partition_list = TopicPartitionList::from_topic_map(&partition_offsets)?;
+    let topic_partition_list: TopicPartitionList =
+        match topic_or_partition {
+            TopicOrPartition::Topic(_) => {
+                let partition_offsets: HashMap<(String, i32), Offset> =
+                    topic_metadata
+                        .partitions().iter()
+                        .map(|p| { ((topic.to_string(), p.id()), offset) })
+                        .collect();
 
-    info!("Assigning all {} partitions for {topic}.", topic_partition_list.count());
+                info!("Assigning all {} partitions for {topic}.", partition_offsets.len());
+
+                TopicPartitionList::from_topic_map(&partition_offsets)?
+            }
+            TopicOrPartition::TopicPartition(_, partition) => {
+                if *partition > topic_metadata.partitions().len() {
+                    return Err(KiekException::boxed(format!("Partition {partition} is out of range for {topic} with {num} partitions.", num = topic_metadata.partitions().len())));
+                }
+
+                let partition_offsets: HashMap<(String, i32), Offset> =
+                    HashMap::from([((topic.to_string(), *partition as i32), offset)]);
+
+                info!("Assigning partition {partition} for {topic}.");
+
+                TopicPartitionList::from_topic_map(&partition_offsets)?
+            }
+        };
 
     consumer.assign(&topic_partition_list)?;
 

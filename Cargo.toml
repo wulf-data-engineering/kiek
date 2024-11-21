@@ -13,6 +13,7 @@ log = "*"
 simple_logger = "*"
 serde = "*"
 chrono = "*"
+regex = "*"
 
 # AWS
 aws-types = "*"

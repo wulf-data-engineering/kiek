@@ -40,7 +40,7 @@ pub fn format<S: Into<String>>(value: S, code: &str, highlight: bool) -> String 
 }
 
 pub fn format_null(highlight: bool) -> String {
-    if (highlight) {
+    if highlight {
         NULL.to_string()
     } else {
         "null".to_string()
@@ -196,6 +196,12 @@ mod tests {
         ));
         let formatted = format_json_value(&value, false);
         assert_eq!(formatted, "{\"age\":25,\"city\":\"San Francisco\",\"name\":\"Jane Doe\"}");
+
+        // make sure the last ANSI code is a reset code
+        let formatted = format_json_value(&value, true);
+        let last_reset_index = formatted.rfind(RESET).unwrap();
+        let last_ansi_index = formatted.rfind("\u{001B}").unwrap();
+        assert_eq!(last_reset_index, last_ansi_index);
     }
 
     #[test]
@@ -208,6 +214,12 @@ mod tests {
 
         let formatted = format_avro_value(&value, false);
         assert_eq!(formatted, "{\"name\":\"Jane Doe\",\"age\":25,\"city\":\"San Francisco\"}");
+
+        // make sure the last ANSI code is a reset code
+        let formatted = format_avro_value(&value, true);
+        let last_reset_index = formatted.rfind(RESET).unwrap();
+        let last_ansi_index = formatted.rfind("\u{001B}").unwrap();
+        assert_eq!(last_reset_index, last_ansi_index);
     }
 }
 
