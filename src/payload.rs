@@ -1,5 +1,6 @@
 use crate::glue::{analyze_glue_message, decode_glue_message, GlueSchemaRegistryFacade};
-use crate::highlight::{format_avro_value, format_json_value, format_null, Highlighting};
+use crate::highlight::{write_avro_value, write_json_value, write_null, Highlighting};
+use std::fmt::Display;
 
 pub enum Payload {
     Null,
@@ -44,12 +45,23 @@ async fn parse_payload_bytes(payload: &[u8], glue_schema_registry_facade: &GlueS
     }
 }
 
-pub fn render_payload(payload: &Payload, highlighting: &Highlighting) -> String {
-    match payload {
-        Payload::Null => format_null(highlighting),
-        Payload::String(string) => string.clone(),
-        Payload::Json(value) => format_json_value(value, highlighting),
-        Payload::Avro(value) => format_avro_value(value, highlighting),
-        Payload::Unknown(string) => format!("{style}{string}{style:#}", style = highlighting.dimmed),
+pub fn format_payload<'a, 'b>(payload: &'a Payload, highlighting: &'b Highlighting) -> PayloadFormatting<'a, 'b> {
+    PayloadFormatting { payload, highlighting }
+}
+
+pub(crate) struct PayloadFormatting<'a, 'b> {
+    payload: &'a Payload,
+    highlighting: &'b Highlighting,
+}
+
+impl<'a, 'b> Display for PayloadFormatting<'a, 'b> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.payload {
+            Payload::Null => write_null(f, self.highlighting),
+            Payload::String(string) => write!(f, "{string}"),
+            Payload::Json(value) => write_json_value(f, value, self.highlighting),
+            Payload::Avro(value) => write_avro_value(f, value, self.highlighting),
+            Payload::Unknown(string) => write!(f, "{style}{string}{style:#}", style = self.highlighting.dimmed),
+        }
     }
 }

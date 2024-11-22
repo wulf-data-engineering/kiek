@@ -3,7 +3,7 @@ use chrono::{DateTime, Datelike, NaiveDate};
 use clap::builder::styling::{AnsiColor, Color, Style};
 use lazy_static::lazy_static;
 use serde_json::Value as JsonValue;
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 
 const PARTITION_COLOR_CODES: [u8; 12] = [124, 19, 29, 136, 63, 88, 27, 36, 214, 160, 69, 66];
 
@@ -46,95 +46,106 @@ impl Highlighting {
     }
 }
 
-pub fn format_null(highlighting: &Highlighting) -> String {
-    format!("{style}null{style:#}", style = highlighting.keyword)
+///
+/// Formats a JSON value to a string with syntax highlighting.
+///
+pub(crate) fn write_json_value(f: &mut Formatter<'_>, value: &JsonValue, highlighting: &Highlighting) -> std::fmt::Result {
+    match value {
+        JsonValue::Null => write_null(f, highlighting),
+        JsonValue::Bool(boolean) => write_keyword(f, *boolean, highlighting),
+        JsonValue::Number(number) => write_number(f, number, highlighting),
+        JsonValue::String(string) => write_string_value(f, string, highlighting),
+        JsonValue::Array(values) => write_array(f, values.iter(), write_json_value, highlighting),
+        JsonValue::Object(entries) => write_map(f, entries.iter(), write_json_value, highlighting),
+    }
 }
 
-fn push_key(result: &mut String, key: &str, highlighting: &Highlighting) {
-    result.push_str(&format!("{style}\"{key}\"{style:#}", style = highlighting.key));
+///
+/// Formats an AVRO value to a string with syntax highlighting.
+///
+pub(crate) fn write_avro_value(f: &mut Formatter<'_>, value: &AvroValue, highlighting: &Highlighting) -> std::fmt::Result {
+    match value {
+        AvroValue::Record(record) => write_map(f, record.iter().map(|(k, v)| (k, v)), write_avro_value, highlighting),
+        AvroValue::Map(map) => write_map(f, map.iter(), write_avro_value, highlighting),
+        AvroValue::Enum(_, symbol) => write_string_value(f, symbol, highlighting),
+        AvroValue::Union(value) => write_avro_value(f, value, highlighting),
+        AvroValue::Array(array) => write_array(f, array.iter(), write_avro_value, highlighting),
+        AvroValue::Fixed(_, bytes) => write_string_value(f, format!("{:?}", bytes), highlighting),
+        AvroValue::String(string) => write_string_value(f, string, highlighting),
+        AvroValue::Bytes(bytes) => write_string_value(f, format!("{:?}", bytes), highlighting),
+        AvroValue::Int(int) => write_number(f, int, highlighting),
+        AvroValue::Long(long) => write_number(f, long, highlighting),
+        AvroValue::Float(float) => write_number(f, float, highlighting),
+        AvroValue::Double(double) => write_number(f, double, highlighting),
+        AvroValue::Boolean(boolean) => write_keyword(f, boolean, highlighting),
+        AvroValue::Null => write_keyword(f, "null", highlighting),
+        AvroValue::Date(date) => write_string_value(f, NaiveDate::from_num_days_from_ce_opt(*EPOCH_DAYS_OFFSET + date).unwrap().to_string(), highlighting),
+        AvroValue::Decimal(decimal) => write_string_value(f, format!("{:?}", decimal), highlighting),
+        AvroValue::TimeMillis(ms) => write_string_value(f, format!("{ms}ms"), highlighting),
+        AvroValue::TimeMicros(micros) => write_string_value(f, format!("{micros}µs"), highlighting),
+        AvroValue::TimestampMillis(ts) => write_string_value(f, DateTime::from_timestamp_millis(*ts).unwrap().to_string(), highlighting),
+        AvroValue::TimestampMicros(ts) => write_string_value(f, DateTime::from_timestamp_micros(*ts).unwrap().to_string(), highlighting),
+        AvroValue::Duration(duration) => write_string_value(f, format!("{:?}m{:?}d{:?}ms", duration.months(), duration.days(), duration.millis()), highlighting),
+        AvroValue::Uuid(uuid) => write_string_value(f, uuid.to_string(), highlighting),
+    }
 }
 
-fn push_string_value<S: Into<String>>(result: &mut String, value: S, highlighting: &Highlighting) {
-    result.push_str(&format!("{style}\"{value}\"{style:#}", value = value.into(), style = highlighting.string));
+fn write_key(f: &mut Formatter<'_>, key: &str, highlighting: &Highlighting) -> std::fmt::Result {
+    write!(f, "{style}\"{key}\"{style:#}", style = highlighting.key)
 }
 
-fn push_number<V: Display>(result: &mut String, value: V, highlighting: &Highlighting) {
-    result.push_str(&format!("{style}{value}{style:#}", style = highlighting.number));
+fn write_string_value<S: Into<String>>(f: &mut Formatter<'_>, value: S, highlighting: &Highlighting) -> std::fmt::Result {
+    write!(f, "{style}\"{value}\"{style:#}", value = value.into(), style = highlighting.string)
 }
 
-fn push_keyword<V: ToString>(result: &mut String, value: V, highlighting: &Highlighting) {
-    result.push_str(&format!("{style}{value}{style:#}", value = value.to_string(), style = highlighting.keyword));
+fn write_number<V: Display>(f: &mut Formatter<'_>, value: V, highlighting: &Highlighting) -> std::fmt::Result {
+    write!(f, "{style}{value}{style:#}", style = highlighting.number)
 }
 
-fn push_null(result: &mut String, highlighting: &Highlighting) {
-    result.push_str(&format_null(highlighting));
+fn write_keyword<V: ToString>(f: &mut Formatter<'_>, value: V, highlighting: &Highlighting) -> std::fmt::Result {
+    write!(f, "{style}{value}{style:#}", value = value.to_string(), style = highlighting.keyword)
 }
 
-fn push_entries<'a, V: 'a, I, F>(result: &mut String, entries: I, prefix: &str, push_entry: F, suffix: &str, highlighting: &Highlighting)
+pub(crate) fn write_null(f: &mut Formatter<'_>, highlighting: &Highlighting) -> std::fmt::Result {
+    write!(f, "{style}null{style:#}", style = highlighting.keyword)
+}
+
+fn write_entries<'a, V: 'a, I, F>(f: &mut Formatter<'_>, entries: I, prefix: &str, mut write_entry: F, suffix: &str, highlighting: &Highlighting) -> std::fmt::Result
 where
     I: Iterator<Item=V>,
-    F: Fn(&mut String, &V, &Highlighting),
+    F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
-    result.push_str(prefix);
+    f.write_str(prefix)?;
     let mut first = true;
     for entry in entries {
         if first {
             first = false;
         } else {
-            result.push_str(",");
+            f.write_str(",")?
         }
-        push_entry(result, &entry, highlighting);
+        write_entry(f, &entry, highlighting)?
     }
-    result.push_str(suffix);
+    f.write_str(suffix)
 }
 
-fn push_array<'a, V: 'a, I, F>(result: &mut String, values: I, push_value: F, highlighting: &Highlighting)
+fn write_array<'a, V: 'a, I, F>(f: &mut Formatter<'_>, values: I, mut write_value: F, highlighting: &Highlighting) -> std::fmt::Result
 where
     I: Iterator<Item=&'a V>,
-    F: Fn(&mut String, &V, &Highlighting),
+    F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
-    push_entries(result, values, "[", |result, value, _| push_value(result, *value, highlighting), "]", highlighting);
+    write_entries(f, values, "[", |f, value, _| write_value(f, *value, highlighting), "]", highlighting)
 }
 
-fn push_map<'a, V: 'a, I, F>(result: &mut String, entries: I, push_value: F, highlighting: &Highlighting)
+fn write_map<'a, V: 'a, I, F>(f: &mut Formatter<'_>, entries: I, mut write_value: F, highlighting: &Highlighting) -> std::fmt::Result
 where
     I: Iterator<Item=(&'a String, &'a V)>,
-    F: Fn(&mut String, &V, &Highlighting),
+    F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
-    push_entries(result, entries, "{", |result, (key, value), _| {
-        push_key(result, key, highlighting);
-        result.push_str(":");
-        push_value(result, value, highlighting);
-    }, "}", highlighting);
-}
-
-///
-/// Formats a JSON value to a string with syntax highlighting.
-///
-pub fn format_json_value(value: &JsonValue, highlighting: &Highlighting) -> String {
-    let mut result = String::with_capacity(1024);
-    push_json_value(&mut result, value, highlighting);
-    result
-}
-
-fn push_json_value(result: &mut String, value: &JsonValue, highlighting: &Highlighting) {
-    match value {
-        JsonValue::Null => push_null(result, highlighting),
-        JsonValue::Bool(boolean) => push_keyword(result, *boolean, highlighting),
-        JsonValue::Number(number) => push_number(result, number, highlighting),
-        JsonValue::String(string) => push_string_value(result, string, highlighting),
-        JsonValue::Array(values) => push_array(result, values.iter(), push_json_value, highlighting),
-        JsonValue::Object(entries) => push_map(result, entries.iter(), push_json_value, highlighting),
-    }
-}
-
-///
-/// Formats an AVRO value to a string with optional syntax highlighting.
-///
-pub fn format_avro_value(value: &AvroValue, highlighting: &Highlighting) -> String {
-    let mut result = String::with_capacity(1024);
-    push_avro_value(&mut result, value, highlighting);
-    result
+    write_entries(f, entries, "{", |f, (key, value), _| {
+        write_key(f, key, highlighting)?;
+        f.write_str(":")?;
+        write_value(f, value, highlighting)
+    }, "}", highlighting)
 }
 
 lazy_static! {
@@ -142,36 +153,31 @@ lazy_static! {
     static ref EPOCH_DAYS_OFFSET: i32 = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap().num_days_from_ce();
 }
 
-fn push_avro_value(result: &mut String, value: &AvroValue, highlighting: &Highlighting) {
-    match value {
-        AvroValue::Record(record) => push_map(result, record.iter().map(|(k, v)| (k, v)), push_avro_value, highlighting),
-        AvroValue::Map(map) => push_map(result, map.iter(), push_avro_value, highlighting),
-        AvroValue::Enum(_, symbol) => push_string_value(result, symbol, highlighting),
-        AvroValue::Union(value) => push_avro_value(result, value, highlighting),
-        AvroValue::Array(array) => push_array(result, array.iter(), push_avro_value, highlighting),
-        AvroValue::Fixed(_, bytes) => push_string_value(result, format!("{:?}", bytes), highlighting),
-        AvroValue::String(string) => push_string_value(result, string, highlighting),
-        AvroValue::Bytes(bytes) => push_string_value(result, format!("{:?}", bytes), highlighting),
-        AvroValue::Int(int) => push_number(result, int, highlighting),
-        AvroValue::Long(long) => push_number(result, long, highlighting),
-        AvroValue::Float(float) => push_number(result, float, highlighting),
-        AvroValue::Double(double) => push_number(result, double, highlighting),
-        AvroValue::Boolean(boolean) => push_keyword(result, boolean, highlighting),
-        AvroValue::Null => push_keyword(result, "null", highlighting),
-        AvroValue::Date(date) => push_string_value(result, NaiveDate::from_num_days_from_ce_opt(*EPOCH_DAYS_OFFSET + date).unwrap().to_string(), highlighting),
-        AvroValue::Decimal(decimal) => push_string_value(result, format!("{:?}", decimal), highlighting),
-        AvroValue::TimeMillis(ms) => push_string_value(result, format!("{ms}ms"), highlighting),
-        AvroValue::TimeMicros(micros) => push_string_value(result, format!("{micros}µs"), highlighting),
-        AvroValue::TimestampMillis(ts) => push_string_value(result, DateTime::from_timestamp_millis(*ts).unwrap().to_string(), highlighting),
-        AvroValue::TimestampMicros(ts) => push_string_value(result, DateTime::from_timestamp_micros(*ts).unwrap().to_string(), highlighting),
-        AvroValue::Duration(duration) => push_string_value(result, format!("{:?}m{:?}d{:?}ms", duration.months(), duration.days(), duration.millis()), highlighting),
-        AvroValue::Uuid(uuid) => push_string_value(result, uuid.to_string(), highlighting),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct JsonFormatting {
+        value: JsonValue,
+        highlighting: Highlighting,
+    }
+
+    impl Display for JsonFormatting {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write_json_value(f, &self.value, &self.highlighting)
+        }
+    }
+
+    struct AvroFormatting {
+        value: AvroValue,
+        highlighting: Highlighting,
+    }
+
+    impl Display for AvroFormatting {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write_avro_value(f, &self.value, &self.highlighting)
+        }
+    }
 
     #[test]
     fn test_format_json_value() {
@@ -181,11 +187,13 @@ mod tests {
             ("city".to_string(), JsonValue::String("San Francisco".to_string())),
         ]
         ));
-        let formatted = format_json_value(&value, &Highlighting::plain());
+
+
+        let formatted = format!("{}", JsonFormatting { value: value.clone(), highlighting: Highlighting::plain() });
         assert_eq!(formatted, "{\"age\":25,\"city\":\"San Francisco\",\"name\":\"Jane Doe\"}");
 
         // make sure the last ANSI code is a reset code
-        let formatted = format_json_value(&value, &Highlighting::colors());
+        let formatted = format!("{}", JsonFormatting { value: value.clone(), highlighting: Highlighting::colors() });
         let last_reset_index = formatted.rfind("\u{001B}[0m").unwrap();
         let last_ansi_index = formatted.rfind("\u{001B}").unwrap();
         assert_eq!(last_reset_index, last_ansi_index);
@@ -199,11 +207,11 @@ mod tests {
             ("city".to_string(), AvroValue::String("San Francisco".to_string())),
         ]);
 
-        let formatted = format_avro_value(&value, &Highlighting::plain());
+        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
         assert_eq!(formatted, "{\"name\":\"Jane Doe\",\"age\":25,\"city\":\"San Francisco\"}");
 
         // make sure the last ANSI code is a reset code
-        let formatted = format_avro_value(&value, &Highlighting::colors());
+        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::colors() });
         let last_reset_index = formatted.rfind("\u{001B}[0m").unwrap();
         let last_ansi_index = formatted.rfind("\u{001B}").unwrap();
         assert_eq!(last_reset_index, last_ansi_index);

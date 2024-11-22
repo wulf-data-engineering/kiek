@@ -4,7 +4,7 @@ use crate::aws::create_credentials_provider;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
 use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, format_timestamp, StartOffset, TopicOrPartition};
-use crate::payload::{parse_payload, render_payload};
+use crate::payload::{parse_payload, format_payload};
 use crate::{kafka, Result};
 use clap::Parser;
 use log::{debug, error, info, trace, LevelFilter};
@@ -190,8 +190,7 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
                 }
 
                 let value = parse_payload(message.payload(), &glue_schema_registry_facade).await;
-
-                let rendered = render_payload(&value, highlighting);
+                let value = format_payload(&value, highlighting);
 
                 let partition_style = highlighting.partition(message.partition());
                 let partition_style_bold = partition_style.bold();
@@ -204,7 +203,7 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
                 let timestamp = format_timestamp(&message.timestamp(), &start_date, highlighting).unwrap_or("".to_string());
 
 
-                println!("{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {rendered}");
+                println!("{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}");
             }
         }
     }
