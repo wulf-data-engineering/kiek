@@ -1,5 +1,5 @@
 use crate::glue::{analyze_glue_message, decode_glue_message, GlueSchemaRegistryFacade};
-use crate::highlight::{format, format_avro_value, format_json_value, format_null, GREY};
+use crate::highlight::{format_avro_value, format_json_value, format_null, Highlighting};
 
 pub enum Payload {
     Null,
@@ -44,12 +44,12 @@ async fn parse_payload_bytes(payload: &[u8], glue_schema_registry_facade: &GlueS
     }
 }
 
-pub fn render_payload(payload: &Payload, highlight: bool) -> String {
+pub fn render_payload(payload: &Payload, highlighting: &Highlighting) -> String {
     match payload {
-        Payload::Null => format_null(highlight),
+        Payload::Null => format_null(highlighting),
         Payload::String(string) => string.clone(),
-        Payload::Json(value) => format_json_value(value, highlight),
-        Payload::Avro(value) => format_avro_value(value, highlight),
-        Payload::Unknown(string) => format(string, GREY, highlight),
+        Payload::Json(value) => format_json_value(value, highlighting),
+        Payload::Avro(value) => format_avro_value(value, highlighting),
+        Payload::Unknown(string) => format!("{style}{string}{style:#}", style = highlighting.dimmed),
     }
 }

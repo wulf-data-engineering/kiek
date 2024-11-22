@@ -1,7 +1,8 @@
+use std::error::Error;
 use std::net::IpAddr;
 use crate::aws::create_credentials_provider;
 use crate::glue::GlueSchemaRegistryFacade;
-use crate::highlight::{format, partition_color, partition_color_bold, SEPARATOR};
+use crate::highlight::Highlighting;
 use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, format_timestamp, StartOffset, TopicOrPartition};
 use crate::payload::{parse_payload, render_payload};
 use crate::{kafka, Result};
@@ -91,20 +92,46 @@ struct Args {
     /// Deactivates syntax highlighting
     ///
     /// As a default kiek uses syntax highlighting for better readability.
-    /// This option deactivates it, e.g. for piping the output to another program or file.
-    #[arg(long, action)]
-    plain: bool,
+    /// This option deactivates it, e.g. for piping the output to another program or file or running in CI.
+    #[arg(long, action, aliases = ["plain"])]
+    no_colors: bool,
+
+    /// Omit everything but the Kafka messages
+    ///
+    /// If set, kiek omits all warnings, progress indicators and just prints the Kafka messages.
+    /// Dialogs like asking for a topic name or schema registry URL are replaced with fatal errors.
+    #[arg(group = "verbosity", short, long, action)]
+    silent: bool,
 
     /// Activates logging on stdout
-    #[arg(short, long, action)]
+    #[arg(group = "verbosity", short, long, action)]
     verbose: bool,
 }
 
 pub async fn run() -> Result<()> {
     let args = Args::parse();
 
-    configure_logging(args.verbose);
+    configure_logging(args.verbose, args.no_colors);
 
+    let highlighting =
+        if args.no_colors {
+            Highlighting::plain()
+        } else {
+            Highlighting::colors()
+        };
+
+    match kiek(args, &highlighting).await {
+        Err(e) => {
+            eprintln!("{style}error{style:#}: {e}", style = highlighting.error);
+            std::process::exit(1);
+        }
+        Ok(_) => {
+            Ok(())
+        }
+    }
+}
+
+async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
     debug!("{:?}", args);
 
     let (credentials_provider, region) = create_credentials_provider(args.profile, args.region, args.role_arn).await;
@@ -132,16 +159,12 @@ pub async fn run() -> Result<()> {
 
     match &args.key {
         Some(key) => {
-            assign_partition_for_key(&consumer, &args.topic_or_partition, key, start_offset).await?;
+            assign_partition_for_key(&consumer, &args.topic_or_partition, key, start_offset, highlighting).await?;
         }
         None => {
-            assign_topic_or_partition(&consumer, &args.topic_or_partition, start_offset).await?;
+            assign_topic_or_partition(&consumer, &args.topic_or_partition, start_offset, highlighting).await?;
         }
     }
-
-    let highlight = !args.plain;
-
-    debug!("Use syntax highlighting: {}", highlight);
 
     let start_date = chrono::Local::now();
 
@@ -168,19 +191,20 @@ pub async fn run() -> Result<()> {
 
                 let value = parse_payload(message.payload(), &glue_schema_registry_facade).await;
 
-                let rendered = render_payload(&value, highlight);
+                let rendered = render_payload(&value, highlighting);
 
-                let partition_color = partition_color(message.partition());
-                let partition_color_bold = partition_color_bold(message.partition());
+                let partition_style = highlighting.partition(message.partition());
+                let partition_style_bold = partition_style.bold();
+                let separator_style = partition_style.dimmed();
 
-                let timestamp = format_timestamp(&message.timestamp(), &start_date, highlight).unwrap_or("".to_string());
+                let topic = message.topic();
+                let partition = message.partition();
+                let offset = message.offset();
 
-                let topic = format(message.topic(), partition_color, highlight);
-                let separator = format("-", SEPARATOR, highlight);
-                let partition = format(message.partition().to_string(), partition_color, highlight);
-                let offset = format(message.offset().to_string(), partition_color_bold, highlight);
+                let timestamp = format_timestamp(&message.timestamp(), &start_date, highlighting).unwrap_or("".to_string());
 
-                println!("{topic}{separator}{partition} {timestamp} {offset} {key} {rendered}");
+
+                println!("{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {rendered}");
             }
         }
     }
@@ -188,9 +212,10 @@ pub async fn run() -> Result<()> {
 
 /// In verbose mode, logs everything in the main module at the debug level, and everything else at the info level.
 /// In non-verbose mode, logging is turned off.
-fn configure_logging(verbose: bool) {
+fn configure_logging(verbose: bool, no_colors: bool) {
     if verbose {
-        SimpleLogger::new().with_colors(true).with_level(LevelFilter::Info).with_module_level(module_path!(), LevelFilter::Debug).init().unwrap();
+        let colors = !no_colors;
+        SimpleLogger::new().with_colors(colors).with_level(LevelFilter::Info).with_module_level(module_path!(), LevelFilter::Debug).init().unwrap();
     } else {
         SimpleLogger::new().with_level(LevelFilter::Off).init().unwrap();
     }
@@ -260,6 +285,28 @@ fn is_local(bootstrap_servers: &String) -> bool {
         }
     }
 }
+
+///
+/// `KiekException` is a custom error type that can be used to wrap any error message
+///
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) struct KiekException {
+    pub message: String,
+}
+
+impl KiekException {
+    pub fn boxed(message: String) -> Box<dyn Error + Send + Sync> {
+        Box::new(Self { message })
+    }
+}
+
+impl std::fmt::Display for KiekException {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl Error for KiekException {}
 
 // Test the arg parser
 #[cfg(test)]

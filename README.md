@@ -13,7 +13,11 @@ containing AVRO encoded messages with schemas in AWS Glue Schema Registry,
 
 ### Publish
 
-- CLI Interface: limit/max-messages
+- limit/max-messages and continue with <enter>
+- make topic optional, verify and maybe prompt
+    - not set & single topic -> continue
+    - not set & multiple topics -> choose
+    - not existing -> choose by levenstein distance, preselect first if distance < 4
 - Failing Gracefully and Explaining Errors: error handling, auth failure, connection loss, schema lookup failure
 - Integration Testing
 - CI/CD

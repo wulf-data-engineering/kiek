@@ -1,4 +1,4 @@
-use crate::{CoreResult, KiekException, Result};
+use crate::{CoreResult, Result};
 use aws_msk_iam_sasl_signer::generate_auth_token_from_credentials_provider;
 use aws_sdk_sts::config::SharedCredentialsProvider;
 use aws_types::region::Region;
@@ -18,7 +18,8 @@ use murmur2::{murmur2, KAFKA_SEED};
 use rdkafka::consumer::{Consumer, ConsumerContext};
 use tokio::runtime::Handle;
 use tokio::time::timeout;
-use crate::highlight::{format, BOLD, GREY, format_error, format_success, RESET};
+use crate::app::KiekException;
+use crate::highlight::Highlighting;
 
 /// Timeout for the Kafka operations
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -79,13 +80,13 @@ pub(crate) enum StartOffset {
 /// Calculates the partition for the given key and assigns it to the consumer with given offset configuration.
 ///
 
-pub async fn assign_partition_for_key<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, key: &str, start_offset: StartOffset) -> Result<()>
+pub async fn assign_partition_for_key<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, key: &str, start_offset: StartOffset, highlighting: &Highlighting) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
     let topic = topic_or_partition.topic();
 
-    let num_partitions = fetch_number_of_partitions(consumer, topic).await?;
+    let num_partitions = fetch_number_of_partitions(consumer, topic, highlighting).await?;
 
     let partition = partition_for_key(key, num_partitions);
 
@@ -94,9 +95,9 @@ where
         TopicOrPartition::TopicPartition(_, configured_partition) => {
             if partition != *configured_partition {
                 return Err(KiekException::boxed(
-                    format!("Given key \"{key}\" is expected in partition {partition} which does not match configured partition {configured}.",
-                            partition = format_success(partition.to_string(), true),
-                            configured = format_error(configured_partition.to_string(), true))));
+                    format!("Given key \"{key}\" is expected in partition {success}{partition}{success:#} which does not match configured partition {error}{configured_partition}{error:#}.",
+                            success = highlighting.success,
+                            error = highlighting.error)));
             }
         }
     }
@@ -117,13 +118,13 @@ where
 /// If a partition is given and valid, it assigns it to the consumer with given offset configuration.
 /// If a topic is given, it assigns all partitions to the consumer with given offset configuration.
 ///
-pub async fn assign_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, start_offset: StartOffset) -> Result<()>
+pub async fn assign_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, start_offset: StartOffset, highlighting: &Highlighting) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
     let topic = topic_or_partition.topic();
 
-    let num_partitions = fetch_number_of_partitions(consumer, topic).await?;
+    let num_partitions = fetch_number_of_partitions(consumer, topic, highlighting).await?;
 
     let offset = offset_for(start_offset);
 
@@ -161,7 +162,7 @@ where
 ///
 /// Fetches the number of partitions for topic with given name.
 ///
-async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str) -> Result<usize>
+async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str, highlighting: &Highlighting) -> Result<usize>
 where
     Ctx: 'static + ConsumerContext,
 {
@@ -171,7 +172,7 @@ where
         Some(topic_metadata) if topic_metadata.partitions().len() > 0 =>
             Ok(topic_metadata.partitions().len()),
         _ => {
-            unknown_topic(consumer, topic)
+            unknown_topic(consumer, topic, highlighting)
         }
     }
 }
@@ -180,13 +181,13 @@ where
 /// Generates a graceful error message for an unknown topic.
 /// Looks for a very similar topic name or lists all available topics by similarity.
 ///
-fn unknown_topic<Ctx, A>(consumer: &StreamConsumer<Ctx>, topic: &str) -> Result<A>
+fn unknown_topic<Ctx, A>(consumer: &StreamConsumer<Ctx>, topic: &str, highlighting: &Highlighting) -> Result<A>
 where
     Ctx: 'static + ConsumerContext,
 {
     let metadata = consumer.fetch_metadata(None, TIMEOUT)?;
     let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
-    Err(KiekException::boxed(unknown_topic_message(topic, &topic_names)))
+    Err(KiekException::boxed(unknown_topic_message(topic, &topic_names, highlighting)))
 }
 
 const MAX_DISTANCE: usize = 4;
@@ -196,24 +197,25 @@ const MAX_TOPICS: usize = 15;
 /// Generates a graceful error message for an unknown topic based the Levinshtein distance to the
 /// existing topics.
 ///
-fn unknown_topic_message(topic: &str, topic_names: &Vec<String>) -> String {
+fn unknown_topic_message(topic: &str, topic_names: &Vec<String>, highlighting: &Highlighting) -> String {
     let mut similar_topics: Vec<(String, usize)> = topic_names.iter()
         .map(|t| (t.clone(), levenshtein(topic, t)))
         .collect();
     similar_topics.sort_by(|a, b| a.1.cmp(&b.1));
 
-    let topic = format_error(topic, true);
+    let success = highlighting.success;
+    let error = highlighting.error;
 
     if topic_names.len() == 0 {
-        format!("Topic {topic} does not exist. In fact, there are no topics on the broker.")
+        format!("Topic {error}{topic}{error:#} does not exist. In fact, there are no topics on the broker.")
     } else {
         let most_similar = similar_topics.first().unwrap();
         if topic_names.len() == 1 || most_similar.1 <= MAX_DISTANCE {
-            format!("Topic {topic} does not exist. Did you mean {similar}?", similar = format_success(&most_similar.0, true))
+            format!("Topic {error}{topic}{error:#} does not exist. Did you mean {success}{similar}{success:#}?", similar = most_similar.0)
         } else {
             let topics = similar_topics.iter().take(MAX_TOPICS).map(|(t, _)| format!(" - {t}")).collect::<Vec<String>>().join("\n");
             let more_info = if similar_topics.len() > MAX_TOPICS { format!("\n...{} more", similar_topics.len() - MAX_TOPICS) } else { "".to_string() };
-            format!("Topic {topic} does not exist. Available topics are:\n{topics}{more_info}")
+            format!("Topic {error}{topic}{error:#} does not exist. Available topics are:\n{topics}{more_info}")
         }
     }
 }
@@ -296,15 +298,15 @@ pub fn partition_for_key(key: &str, partitions: usize) -> usize {
 ///
 /// Format a Kafka record timestamp for display
 ///
-pub fn format_timestamp(timestamp: &Timestamp, start_date: &DateTime<Local>, highlight: bool) -> Option<String> {
+pub fn format_timestamp(timestamp: &Timestamp, start_date: &DateTime<Local>, highlighting: &Highlighting) -> Option<String> {
     match timestamp {
         Timestamp::NotAvailable => None,
-        Timestamp::CreateTime(ms) => format_timestamp_millis(*ms, start_date, highlight),
-        Timestamp::LogAppendTime(ms) => format_timestamp_millis(*ms, start_date, highlight),
+        Timestamp::CreateTime(ms) => format_timestamp_millis(*ms, start_date, highlighting),
+        Timestamp::LogAppendTime(ms) => format_timestamp_millis(*ms, start_date, highlighting),
     }
 }
 
-fn format_timestamp_millis(ms: i64, start_date: &DateTime<Local>, highlight: bool) -> Option<String> {
+fn format_timestamp_millis(ms: i64, start_date: &DateTime<Local>, highlighting: &Highlighting) -> Option<String> {
     chrono::DateTime::from_timestamp_millis(ms)
         .map(|dt| {
             let local_time = dt.with_timezone(&Local);
@@ -312,9 +314,8 @@ fn format_timestamp_millis(ms: i64, start_date: &DateTime<Local>, highlight: boo
 
             let after_start = start_date.signed_duration_since(dt).num_milliseconds() < 0;
             let same_day = start_date.date_naive() == dt.date_naive();
-            let highlighting = if after_start { BOLD } else if same_day { RESET } else { GREY };
-
-            format(formatted.to_string(), highlighting, highlight)
+            let style = if after_start { highlighting.bold } else if same_day { highlighting.plain } else { highlighting.dimmed };
+            format!("{style}{formatted}{style:#}")
         })
 }
 
@@ -340,18 +341,18 @@ mod tests {
     fn test_non_existing_topic_errors() {
         let topic_names = vec!["topic".to_string()];
 
-        assert_eq!(unknown_topic_message("topik", &topic_names),
-                   format!("Topic {topic} does not exist. Did you mean {similar}?", topic = format_error("topik", true), similar = format_success("topic", true)));
+        assert_eq!(unknown_topic_message("topik", &topic_names, &Highlighting::plain()),
+                   "Topic topik does not exist. Did you mean topic?");
 
         let topic_names = vec!["topic".to_string(), "something-totally-different".to_string()];
 
-        assert_eq!(unknown_topic_message("topik", &topic_names),
-                   format!("Topic {topic} does not exist. Did you mean {similar}?", topic = format_error("topik", true), similar = format_success("topic", true)));
+        assert_eq!(unknown_topic_message("topik", &topic_names, &Highlighting::plain()),
+                   "Topic topik does not exist. Did you mean topic?");
 
         let mut topic_names = vec!["abcdefg".to_string(), "abcdefgh".to_string(), "abcdefghi".to_string()];
         topic_names.reverse();
 
-        assert_eq!(unknown_topic_message("topic", &topic_names),
-                   format!("Topic {topic} does not exist. Available topics are:\n - abcdefg\n - abcdefgh\n - abcdefghi", topic = format_error("topic", true)));
+        assert_eq!(unknown_topic_message("topic", &topic_names, &Highlighting::plain()),
+                   "Topic topic does not exist. Available topics are:\n - abcdefg\n - abcdefgh\n - abcdefghi");
     }
 }
