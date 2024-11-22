@@ -5,7 +5,7 @@ use aws_config::default_provider::credentials::DefaultCredentialsChain;
 use aws_config::sts::AssumeRoleProvider;
 use aws_sdk_glue::config::SharedCredentialsProvider;
 use aws_types::region::Region;
-use log::{debug, info};
+use log::info;
 use crate::aws;
 
 const DEFAULT_PROFILE: &str = "default";
@@ -30,7 +30,6 @@ pub fn region() -> String {
     std::env::var("AWS_DEFAULT_REGION").unwrap_or(DEFAULT_REGION.to_string())
 }
 
-
 ///
 /// Creates a basic credentials provider with the provided profile and region or defaults if no
 /// role arn is provided. If a role arn is provided, the credentials provider will assume the role.
@@ -42,23 +41,27 @@ pub async fn create_credentials_provider(profile: Option<String>, region: Option
     let region = region.unwrap_or(aws::region());
     let region = Region::new(region);
 
-    debug!("Using AWS profile {profile} in region {region}.");
+    info!("Using AWS profile {profile} in region {region}.");
 
     match role_arn {
         Some(role_arn) => {
+
             let aws_config = aws_config::defaults(BehaviorVersion::latest())
                 .profile_name(profile)
                 .region(region.clone())
                 .load()
                 .await;
 
-            info!("Using STS credentials provider assuming role {role_arn}.");
+            info!("Preparing STS credentials provider assuming role {role_arn}.");
 
-            let assume_role_provider = AssumeRoleProvider::builder(role_arn)
+            let assume_role_provider = AssumeRoleProvider::builder(role_arn.clone())
                 .configure(&aws_config)
                 .session_name("kieker")
                 .build()
                 .await;
+
+            info!("Using STS credentials provider assuming role {role_arn}.");
+
             (SharedCredentialsProvider::new(assume_role_provider), region)
         }
         None => {

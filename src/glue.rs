@@ -8,6 +8,7 @@ use aws_types::region::Region;
 use log::{debug, info};
 use crate::Result;
 use uuid::Uuid;
+use crate::feedback::Feedback;
 
 ///
 /// Try to analyze an AVRO encoded message from the Glue Schema Registry.
@@ -68,10 +69,11 @@ pub async fn decode_glue_message<'a>(message: GlueMessage<'a>, glue_schema_regis
 pub struct GlueSchemaRegistryFacade {
     client: Client,
     cache: Arc<RefCell<std::collections::HashMap<Uuid, Schema>>>,
+    feedback: Feedback,
 }
 
 impl GlueSchemaRegistryFacade {
-    pub fn new(credentials_provider: SharedCredentialsProvider, region: Region) -> Self {
+    pub fn new(credentials_provider: SharedCredentialsProvider, region: Region, feedback: Feedback) -> Self {
         let client = Client::from_conf(aws_sdk_glue::Config::builder()
             .behavior_version(BehaviorVersion::latest())
             .region(region)
@@ -81,6 +83,7 @@ impl GlueSchemaRegistryFacade {
         Self {
             client,
             cache: Arc::new(RefCell::new(std::collections::HashMap::new())),
+            feedback,
         }
     }
 
@@ -91,6 +94,8 @@ impl GlueSchemaRegistryFacade {
             debug!("Schema cache hit for version {}", schema_id);
             return Ok(schema.clone());
         }
+
+        self.feedback.info("Loading", format!("schema version {}", schema_id));
 
         info!("Loading schema version {}.", schema_id);
 

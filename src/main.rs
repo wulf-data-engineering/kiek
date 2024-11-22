@@ -4,6 +4,7 @@ mod kafka;
 mod payload;
 mod highlight;
 mod glue;
+mod feedback;
 
 use std::error::Error;
 

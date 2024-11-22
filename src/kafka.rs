@@ -3,7 +3,7 @@ use aws_msk_iam_sasl_signer::generate_auth_token_from_credentials_provider;
 use aws_sdk_sts::config::SharedCredentialsProvider;
 use aws_types::region::Region;
 use futures::{FutureExt};
-use log::{debug, error, info};
+use log::{error, info};
 use rdkafka::client::{ClientContext, OAuthToken};
 use rdkafka::config::{ClientConfig};
 use rdkafka::consumer::stream_consumer::StreamConsumer;
@@ -19,6 +19,7 @@ use rdkafka::consumer::{Consumer, ConsumerContext};
 use tokio::runtime::Handle;
 use tokio::time::timeout;
 use crate::app::KiekException;
+use crate::feedback::Feedback;
 use crate::highlight::Highlighting;
 
 /// Timeout for the Kafka operations
@@ -38,21 +39,31 @@ pub fn create_config<S: Into<String>>(bootstrap_servers: S) -> ClientConfig {
 ///
 /// Create a Kafka consumer to connect to an MSK cluster with IAM authentication.
 ///
-pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provider: SharedCredentialsProvider, region: Region) -> Result<StreamConsumer<IamContext>> {
+pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provider: SharedCredentialsProvider, region: Region, feedback: Feedback) -> Result<StreamConsumer<IamContext>> {
     let mut client_config = create_config(bootstrap_servers);
     client_config.set("security.protocol", "SASL_SSL");
     client_config.set("sasl.mechanism", "OAUTHBEARER");
 
-    let client_context = IamContext::new(region, credentials_provider, Handle::current());
+    let client_context = IamContext::new(region, credentials_provider, feedback, Handle::current());
 
     let consumer: StreamConsumer<IamContext> = client_config.create_with_context(client_context)?;
 
-    // Make sure there is an OAuth token before obtaining metadata
-    // See https://github.com/yuhao-su/aws-msk-iam-sasl-signer-rs/blob/a6efa88801333d634c8370cf85128bce6b513c11/examples/consumer.rs
-    assert!(consumer.recv().now_or_never().is_none());
-
     Ok(consumer)
 }
+
+pub async fn connect<Ctx>(consumer: &StreamConsumer<Ctx>) -> Result<()>
+where
+    Ctx: ConsumerContext + 'static,
+{
+    // Make sure there is an OAuth token before obtaining metadata
+    // See https://github.com/yuhao-su/aws-msk-iam-sasl-signer-rs/blob/a6efa88801333d634c8370cf85128bce6b513c11/examples/consumer.rs
+    if consumer.recv().now_or_never().is_none() {
+        Ok(())
+    } else {
+        Err(KiekException::boxed("Failed to connect to Kafka cluster."))
+    }
+}
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum TopicOrPartition {
@@ -80,7 +91,7 @@ pub(crate) enum StartOffset {
 /// Calculates the partition for the given key and assigns it to the consumer with given offset configuration.
 ///
 
-pub async fn assign_partition_for_key<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, key: &str, start_offset: StartOffset, highlighting: &Highlighting) -> Result<()>
+pub async fn assign_partition_for_key<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &Option<TopicOrPartition>, key: &str, start_offset: StartOffset, feedback: Feedback, highlighting: &Highlighting) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
@@ -90,17 +101,19 @@ where
 
     let partition = partition_for_key(key, num_partitions);
 
-    match topic_or_partition {
-        TopicOrPartition::Topic(_) => {}
-        TopicOrPartition::TopicPartition(_, configured_partition) => {
-            if partition != *configured_partition {
-                return Err(KiekException::boxed(
-                    format!("Given key \"{key}\" is expected in partition {success}{partition}{success:#} which does not match configured partition {error}{configured_partition}{error:#}.",
-                            success = highlighting.success,
-                            error = highlighting.error)));
+    let partition =
+        match topic_or_partition {
+            TopicOrPartition::Topic(_) => partition,
+            TopicOrPartition::TopicPartition(_, configured_partition) => {
+                if partition != *configured_partition {
+                    feedback.warning(format!("Key {bold}{key}{bold:#} would be expected in partition {success}{partition}{success:#} with default partitioning, not in configured partition {error}{configured_partition}{error:#}.",
+                                             bold = highlighting.bold,
+                                             success = highlighting.success,
+                                             error = highlighting.error))
+                }
+                *configured_partition
             }
-        }
-    }
+        };
 
     let partition_offsets: HashMap<(String, i32), Offset> =
         HashMap::from([((topic.to_string(), partition as i32), offset_for(start_offset))]);
@@ -118,7 +131,7 @@ where
 /// If a partition is given and valid, it assigns it to the consumer with given offset configuration.
 /// If a topic is given, it assigns all partitions to the consumer with given offset configuration.
 ///
-pub async fn assign_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, start_offset: StartOffset, highlighting: &Highlighting) -> Result<()>
+pub async fn assign_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &Option<TopicOrPartition>, start_offset: StartOffset, highlighting: &Highlighting) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
@@ -236,12 +249,13 @@ fn offset_for(start_offset: StartOffset) -> Offset {
 pub(crate) struct IamContext {
     region: Region,
     credentials_provider: SharedCredentialsProvider,
+    feedback: Feedback,
     rt: Handle,
 }
 
 impl IamContext {
-    fn new(region: Region, credentials_provider: SharedCredentialsProvider, rt: Handle) -> Self {
-        Self { region, credentials_provider, rt }
+    fn new(region: Region, credentials_provider: SharedCredentialsProvider, feedback: Feedback, rt: Handle) -> Self {
+        Self { region, credentials_provider, feedback, rt }
     }
 }
 
@@ -258,13 +272,14 @@ impl ClientContext for IamContext {
         let region = self.region.clone();
         let credentials_provider = self.credentials_provider.clone();
         let handle = self.rt.clone();
+        self.feedback.info("Authorizing", "using AWS IAM auth token");
         let (token, expiration_time_ms) = {
             let handle = thread::spawn(move || {
                 handle.block_on(async {
                     timeout(TIMEOUT, generate_auth_token_from_credentials_provider(region, credentials_provider).map(|r| {
                         match r {
                             Ok(token) => {
-                                debug!("Generated OAuth token: {} {}", token.0, token.1);
+                                info!("Generated OAuth token: {} {}", token.0, token.1);
                                 Ok(token)
                             }
                             Err(err) => {

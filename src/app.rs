@@ -1,19 +1,21 @@
-use std::error::Error;
-use std::net::IpAddr;
 use crate::aws::create_credentials_provider;
+use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
-use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, format_timestamp, StartOffset, TopicOrPartition};
-use crate::payload::{parse_payload, format_payload};
+use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, connect, format_timestamp, StartOffset, TopicOrPartition};
+use crate::payload::{format_payload, parse_payload};
 use crate::{kafka, Result};
 use clap::Parser;
-use log::{debug, error, info, trace, LevelFilter};
+use lazy_static::lazy_static;
+use log::{debug, error, trace, LevelFilter};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::Message;
-use simple_logger::SimpleLogger;
-use std::str::FromStr;
-use lazy_static::lazy_static;
 use regex::Regex;
+use simple_logger::SimpleLogger;
+use std::error::Error;
+use std::io::IsTerminal;
+use std::net::IpAddr;
+use std::str::FromStr;
 
 #[derive(Parser, Debug)]
 /// kiek (/ˈkiːk/ - Nothern German for Look!) helps you to look into Kafka topics, especially, if
@@ -28,7 +30,7 @@ struct Args {
     /// If a topic name is provided, kiek will consume from all partitions.
     /// If a topic/partition (e.g. "topic-0") is provided, kiek will consume from the specific partition.
     #[arg(value_name = "TOPIC/PARTITION")]
-    topic_or_partition: TopicOrPartition,
+    topic_or_partition: Option<TopicOrPartition>,
 
     /// Kafka cluster broker string
     ///
@@ -91,14 +93,14 @@ struct Args {
 
     /// Deactivates syntax highlighting
     ///
-    /// As a default kiek uses syntax highlighting for better readability.
+    /// As a default kiek uses syntax highlighting for better readability when run in terminals.
     /// This option deactivates it, e.g. for piping the output to another program or file or running in CI.
     #[arg(long, action, aliases = ["plain"])]
     no_colors: bool,
 
     /// Omit everything but the Kafka messages
     ///
-    /// If set, kiek omits all warnings, progress indicators and just prints the Kafka messages.
+    /// If set, kiek omits all progress indicators, warnings and just prints the Kafka messages.
     /// Dialogs like asking for a topic name or schema registry URL are replaced with fatal errors.
     #[arg(group = "verbosity", short, long, action)]
     silent: bool,
@@ -114,7 +116,7 @@ pub async fn run() -> Result<()> {
     configure_logging(args.verbose, args.no_colors);
 
     let highlighting =
-        if args.no_colors {
+        if args.no_colors || !std::io::stdout().is_terminal() {
             Highlighting::plain()
         } else {
             Highlighting::colors()
@@ -134,13 +136,21 @@ pub async fn run() -> Result<()> {
 async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
     debug!("{:?}", args);
 
+    let feedback = Feedback::prepare(highlighting, args.silent);
+
+    feedback.info("Set up", "authentication");
+
     let (credentials_provider, region) = create_credentials_provider(args.profile, args.region, args.role_arn).await;
 
-    let glue_schema_registry_facade = GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone());
+    let glue_schema_registry_facade = GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), feedback.clone());
 
     let bootstrap_servers = args.bootstrap_servers.unwrap_or("127.0.0.1:9092".to_string());
 
-    let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), region.clone()).await?;
+    let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), region.clone(), feedback.clone()).await?;
+
+    feedback.info("Connecting", format!("to Kafka cluster at {bootstrap_servers}"));
+
+    connect(&consumer).await?;
 
     let start_offset =
         if args.earliest {
@@ -155,11 +165,11 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
             }
         };
 
-    info!("Starting consumer with offset: {:?}", start_offset);
+    feedback.info("Assigning", "partitions");
 
     match &args.key {
         Some(key) => {
-            assign_partition_for_key(&consumer, &args.topic_or_partition, key, start_offset, highlighting).await?;
+            assign_partition_for_key(&consumer, &args.topic_or_partition, key, start_offset, feedback.clone(), highlighting).await?;
         }
         None => {
             assign_topic_or_partition(&consumer, &args.topic_or_partition, start_offset, highlighting).await?;
@@ -167,8 +177,9 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
     }
 
     let start_date = chrono::Local::now();
+    let mut received_messages: usize = 0;
 
-    debug!("Starting at {}", start_date);
+    feedback.info("Consuming", "messages");
 
     loop {
         match consumer.recv().await {
@@ -180,12 +191,17 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
                 error!("Received error during polling: {:?}", other);
                 return Err(other.into());
             }
+
             Ok(message) => {
+                received_messages += 1;
                 let key = String::from_utf8_lossy(message.key().unwrap_or(&[])).to_string();
 
                 // Skip messages that don't match the key if a key is scanned for
                 match &args.key {
-                    Some(search_key) if !search_key.eq(&key) => continue,
+                    Some(search_key) if !search_key.eq(&key) => {
+                        feedback.info("Consumed", format!("{received_messages} messages"));
+                        continue;
+                    }
                     _ => {}
                 }
 
@@ -202,7 +218,7 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
 
                 let timestamp = format_timestamp(&message.timestamp(), &start_date, highlighting).unwrap_or("".to_string());
 
-
+                feedback.clear();
                 println!("{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}");
             }
         }
@@ -294,8 +310,8 @@ pub(crate) struct KiekException {
 }
 
 impl KiekException {
-    pub fn boxed(message: String) -> Box<dyn Error + Send + Sync> {
-        Box::new(Self { message })
+    pub fn boxed<S: Into<String>>(message: S) -> Box<dyn Error + Send + Sync> {
+        Box::new(Self { message: message.into() })
     }
 }
 
@@ -315,7 +331,7 @@ mod tests {
     #[test]
     fn test_args_parser() {
         let args = Args::parse_from(&["kiek", "test-topic", "--bootstrap-servers", "localhost:9092"]);
-        assert_eq!(args.topic_or_partition, TopicOrPartition::Topic("test-topic".to_string()));
+        assert_eq!(args.topic_or_partition, Some(TopicOrPartition::Topic("test-topic".to_string())));
         assert_eq!(args.bootstrap_servers, Some("localhost:9092".to_string()));
         assert_eq!(args.key, None);
         assert_eq!(args.profile, None);
@@ -325,7 +341,7 @@ mod tests {
         assert_eq!(args.offset, None);
 
         let args = Args::parse_from(&["kiek", "test-topic", "--bootstrap-servers", "localhost:9092", "--profile", "test-profile", "--region", "us-west-1", "--verbose", "--offset", "earliest", "--key", "test-key"]);
-        assert_eq!(args.topic_or_partition, TopicOrPartition::Topic("test-topic".to_string()));
+        assert_eq!(args.topic_or_partition, Some(TopicOrPartition::Topic("test-topic".to_string())));
         assert_eq!(args.bootstrap_servers, Some("localhost:9092".to_string()));
         assert_eq!(args.key, Some("test-key".to_string()));
         assert_eq!(args.profile, Some("test-profile".to_string()));
@@ -335,7 +351,7 @@ mod tests {
         assert_eq!(args.offset, Some(StartOffset::Earliest));
 
         let args = Args::parse_from(&["kiek", "test-topic-1", "--bootstrap-servers", "localhost:9092", "--profile", "test-profile", "--region", "us-west-1", "--role-arn", "arn:aws:iam::123456789012:role/test-role", "--offset=-3", "-k", "test-key"]);
-        assert_eq!(args.topic_or_partition, TopicOrPartition::TopicPartition("test-topic".to_string(), 1));
+        assert_eq!(args.topic_or_partition, Some(TopicOrPartition::TopicPartition("test-topic".to_string(), 1)));
         assert_eq!(args.bootstrap_servers, Some("localhost:9092".to_string()));
         assert_eq!(args.key, Some("test-key".to_string()));
         assert_eq!(args.profile, Some("test-profile".to_string()));

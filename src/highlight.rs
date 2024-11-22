@@ -7,6 +7,22 @@ use std::fmt::{Display, Formatter};
 
 const PARTITION_COLOR_CODES: [u8; 12] = [124, 19, 29, 136, 63, 88, 27, 36, 214, 160, 69, 66];
 
+#[derive(Clone, Debug)]
+#[allow(missing_copy_implementations)]
+pub struct Highlighting {
+    pub plain: Style,
+    pub bold: Style,
+    pub dimmed: Style,
+    pub success: Style,
+    pub warning: Style,
+    pub error: Style,
+    pub partition_styles: Vec<Style>,
+    pub key: Style,
+    pub string: Style,
+    pub number: Style,
+    pub keyword: Style,
+}
+
 impl Highlighting {
     /// No highlighting
     pub fn plain() -> Self {
@@ -15,6 +31,7 @@ impl Highlighting {
             bold: Style::new(),
             dimmed: Style::new(),
             success: Style::new(),
+            warning: Style::new(),
             error: Style::new(),
             partition_styles: vec![Style::new()],
             key: Style::new(),
@@ -30,7 +47,8 @@ impl Highlighting {
             plain: Style::new(),
             bold: Style::new().bold(),
             dimmed: Style::new().dimmed(),
-            success: Style::new().fg_color(Some(Color::from(22))).bold(),
+            success: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))).bold(),
+            warning: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Yellow))).bold(),
             error: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Red))).bold(),
             partition_styles: PARTITION_COLOR_CODES.iter().map(|color| Style::new().fg_color(Some(Color::from(*color)))).collect(),
             // These are close to the colors of the IntelliJ IDEA JSON viewer
@@ -216,20 +234,4 @@ mod tests {
         let last_ansi_index = formatted.rfind("\u{001B}").unwrap();
         assert_eq!(last_reset_index, last_ansi_index);
     }
-}
-
-
-#[derive(Clone, Debug)]
-#[allow(missing_copy_implementations)]
-pub struct Highlighting {
-    pub plain: Style,
-    pub bold: Style,
-    pub dimmed: Style,
-    pub success: Style,
-    pub error: Style,
-    pub partition_styles: Vec<Style>,
-    pub key: Style,
-    pub string: Style,
-    pub number: Style,
-    pub keyword: Style,
 }
