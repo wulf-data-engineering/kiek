@@ -14,6 +14,7 @@ use std::thread;
 use std::time::Duration;
 use chrono::{DateTime, Local};
 use dialoguer::Select;
+use dialoguer::theme::Theme;
 use levenshtein::levenshtein;
 use murmur2::{murmur2, KAFKA_SEED};
 use rdkafka::consumer::{Consumer, ConsumerContext};
@@ -92,14 +93,13 @@ pub(crate) enum StartOffset {
 /// Looks up the number of partitions for given topic in the Kafka cluster.
 /// Calculates the partition for the given key and assigns it to the consumer with given offset configuration.
 ///
-
 pub async fn assign_partition_for_key<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, key: &str, start_offset: StartOffset, feedback: &Feedback) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
-    let topic = topic_or_partition.topic();
+    let (topic_or_partition, num_partitions) = verify_topic_or_partition(consumer, topic_or_partition, feedback).await?;
 
-    let num_partitions = fetch_number_of_partitions(consumer, topic, &feedback.highlighting).await?;
+    let topic = topic_or_partition.topic();
 
     let partition = partition_for_key(key, num_partitions);
 
@@ -107,13 +107,13 @@ where
         match topic_or_partition {
             TopicOrPartition::Topic(_) => partition,
             TopicOrPartition::TopicPartition(_, configured_partition) => {
-                if partition != *configured_partition {
+                if partition != configured_partition {
                     feedback.warning(format!("Key {bold}{key}{bold:#} would be expected in partition {success}{partition}{success:#} with default partitioning, not in configured partition {error}{configured_partition}{error:#}.",
                                              bold = feedback.highlighting.bold,
                                              success = feedback.highlighting.success,
                                              error = feedback.highlighting.error))
                 }
-                *configured_partition
+                configured_partition
             }
         };
 
@@ -140,61 +140,138 @@ pub async fn select_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, feed
 where
     Ctx: ConsumerContext + 'static,
 {
+    feedback.info("Fetching", "topics from Kafka cluster");
+
     let metadata = consumer.fetch_metadata(None, TIMEOUT)?;
     let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
 
     if topic_names.len() == 0 {
-        return Err(KiekException::boxed("No topics available in the Kafka cluster."));
+        Err(KiekException::boxed("No topics available in the Kafka cluster"))
     } else if topic_names.len() == 1 {
         feedback.info("Using", format!("topic {topic}", topic = &topic_names[0]));
         return Ok(TopicOrPartition::Topic(topic_names[0].clone()));
     } else if feedback.silent {
-        return Err(KiekException::boxed("Multiple topics available in the Kafka cluster. Please specify a topic."));
+        return Err(KiekException::boxed("Multiple topics available in the Kafka cluster: Please specify a topic."));
     } else {
-        prompt_topic_or_partition(&metadata, &feedback)
+        prompt_topic_or_partition(&metadata, None, &feedback).map(|(topic, _)| topic)
     }
 }
 
 ///
 /// Prompt the user to select a topic or partition from the Kafka cluster.
 ///
-fn prompt_topic_or_partition(metadata: &Metadata, feedback: &Feedback) -> Result<TopicOrPartition> {
+/// If a topic had been given and does not exist, sorts the topics by Levensthein distance to the
+/// given topic name.
+///
+fn prompt_topic_or_partition(metadata: &Metadata, given: Option<&TopicOrPartition>, feedback: &Feedback) -> Result<(TopicOrPartition, usize)> {
+    assert_eq!(feedback.silent, false);
     let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
+
+    let given_topic = given.map(|t| t.topic());
+
+    // Sort topics by Levenshtein distance to the given topic name
+    let topic_names =
+        if let Some(given_topic) = given_topic {
+            let mut similar_topics: Vec<(String, usize)> = topic_names.iter()
+                .map(|t| (t.clone(), levenshtein(given_topic, t)))
+                .collect();
+            similar_topics.sort_by(|a, b| a.1.cmp(&b.1));
+            similar_topics.iter().map(|(t, _)| t.clone()).collect()
+        } else {
+            topic_names
+        };
+
+    let prompt = if let Some(given) = given {
+        format!("{topic} does not exist. Please select a topic.", topic = given.topic())
+    } else {
+        "Select a topic".to_string()
+    };
 
     feedback.clear();
     let theme = feedback.highlighting.dialoguer_theme();
-    let selection = Select::with_theme(&*theme)
-        .with_prompt("Select a topic")
+    let select = Select::with_theme(&*theme)
+        .with_prompt(prompt)
         .items(&topic_names)
-        .max_length(15)
-        .interact()
-        .unwrap();
+        .max_length(15);
+
+    // preselect the topic with the best Levenshtein distance
+    let select =
+        if given.is_some() {
+            select.default(0)
+        } else {
+            select
+        };
+
+    let selection = select.interact().unwrap();
 
     let topic = &topic_names[selection];
 
+    let num_partitions = metadata.topics().iter().find(|t| t.name() == topic).unwrap().partitions().len();
+
+    match given {
+        Some(TopicOrPartition::TopicPartition(_, partition)) => {
+            Ok((TopicOrPartition::TopicPartition(topic.clone(), *partition), num_partitions))
+        }
+        Some(TopicOrPartition::Topic(_)) => {
+            Ok((TopicOrPartition::Topic(topic.clone()), num_partitions))
+        }
+        None => {
+            prompt_partition(feedback, theme, topic, num_partitions)
+        }
+    }
+}
+
+fn prompt_partition(feedback: &Feedback, theme: Box<dyn Theme>, topic: &String, num_partitions: usize) -> Result<(TopicOrPartition, usize)> {
     let partitions: Vec<String> =
-        metadata.topics().iter().filter(|t| t.name() == topic).flat_map(|t| (-1..t.partitions().len() as i32).map(|p|
+        (-1..num_partitions as i32).map(|p|
             if p == -1 {
-                format!("{} (all partitions)", t.name())
+                format!("{topic} (all partitions)")
             } else {
-                format!("{color}{}{color:#}{dimmed}-{dimmed:#}{color}{}{color:#}", t.name(), p,
+                format!("{color}{topic}{color:#}{dimmed}-{dimmed:#}{color}{p}{color:#}",
                         color = feedback.highlighting.partition(p),
                         dimmed = feedback.highlighting.partition(p).dimmed())
             }
-        )).collect();
+        ).collect();
 
     let partition = Select::with_theme(&*theme)
         .with_prompt("Select a partition")
         .items(&partitions)
         .default(0)
-        .max_length(13)
+        .max_length(13) // "all partitions" and first 12 partitions
         .interact()
         .unwrap() as i32 - 1;
 
     if partition == -1 {
-        Ok(TopicOrPartition::Topic(topic.clone()))
+        Ok((TopicOrPartition::Topic(topic.clone()), num_partitions))
     } else {
-        Ok(TopicOrPartition::TopicPartition(topic.clone(), partition as usize))
+        Ok((TopicOrPartition::TopicPartition(topic.clone(), partition as usize), num_partitions))
+    }
+}
+
+///
+/// Looks up the number of partitions for given topic in the Kafka cluster.
+/// If topic does not exist, it prompts the user to select a topic.
+///
+pub async fn verify_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, feedback: &Feedback) -> Result<(TopicOrPartition, usize)>
+where
+    Ctx: ConsumerContext + 'static,
+{
+    feedback.info("Fetching", format!("number of partitions of {}", topic_or_partition.topic()));
+
+    let num_partitions = fetch_number_of_partitions(consumer, topic_or_partition.topic()).await?;
+
+    match (num_partitions, topic_or_partition) {
+        (Some(num_partitions), _) => Ok((topic_or_partition.clone(), num_partitions)),
+        (None, _) => {
+            if feedback.silent {
+                Err(KiekException::boxed("Topic does not exist."))
+            } else {
+                feedback.info("Fetching", "topics from Kafka cluster");
+
+                let metadata = consumer.fetch_metadata(None, TIMEOUT)?;
+                prompt_topic_or_partition(&metadata, Some(topic_or_partition), feedback)
+            }
+        }
     }
 }
 
@@ -203,13 +280,13 @@ fn prompt_topic_or_partition(metadata: &Metadata, feedback: &Feedback) -> Result
 /// If a partition is given and valid, it assigns it to the consumer with given offset configuration.
 /// If a topic is given, it assigns all partitions to the consumer with given offset configuration.
 ///
-pub async fn assign_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, start_offset: StartOffset, highlighting: &Highlighting) -> Result<()>
+pub async fn assign_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, start_offset: StartOffset, feedback: &Feedback) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
-    let topic = topic_or_partition.topic();
+    let (topic_or_partition, num_partitions) = verify_topic_or_partition(consumer, topic_or_partition, feedback).await?;
 
-    let num_partitions = fetch_number_of_partitions(consumer, topic, highlighting).await?;
+    let topic = topic_or_partition.topic();
 
     let offset = offset_for(start_offset);
 
@@ -226,12 +303,12 @@ where
                 TopicPartitionList::from_topic_map(&partition_offsets)?
             }
             TopicOrPartition::TopicPartition(_, partition) => {
-                if *partition > num_partitions {
+                if partition > num_partitions {
                     return Err(KiekException::boxed(format!("Partition {partition} is out of range for {topic} with {num_partitions} partitions.")));
                 }
 
                 let partition_offsets: HashMap<(String, i32), Offset> =
-                    HashMap::from([((topic.to_string(), *partition as i32), offset)]);
+                    HashMap::from([((topic.to_string(), partition as i32), offset)]);
 
                 info!("Assigning partition {partition} for {topic}.");
 
@@ -247,7 +324,7 @@ where
 ///
 /// Fetches the number of partitions for topic with given name.
 ///
-async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str, highlighting: &Highlighting) -> Result<usize>
+async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str) -> Result<Option<usize>>
 where
     Ctx: 'static + ConsumerContext,
 {
@@ -255,9 +332,9 @@ where
 
     match metadata.topics().first() {
         Some(topic_metadata) if topic_metadata.partitions().len() > 0 =>
-            Ok(topic_metadata.partitions().len()),
+            Ok(Some(topic_metadata.partitions().len())),
         _ => {
-            unknown_topic(consumer, topic, highlighting)
+            Ok(None)
         }
     }
 }

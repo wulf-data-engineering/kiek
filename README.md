@@ -13,11 +13,8 @@ containing AVRO encoded messages with schemas in AWS Glue Schema Registry,
 
 ### Publish
 
-- make topic optional, verify and maybe
-    - not set & single topic -> continue
-    - not set & multiple topics -> choose
-    - not existing -> choose by levenstein distance, preselect first if distance < 4
-- Try 19202 after 9202
+- Try 19202 after 9202 if no brokers are configured
+- Indicate reached head of topic with --earliest
 - limit/max-messages and continue with <enter>
 - Failing Gracefully and Explaining Errors: error handling, auth failure, connection loss, schema lookup failure
 - Integration Testing

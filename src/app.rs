@@ -178,7 +178,7 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
             assign_partition_for_key(&consumer, &topic_or_partition, key, start_offset, &feedback).await?;
         }
         None => {
-            assign_topic_or_partition(&consumer, &topic_or_partition, start_offset, highlighting).await?;
+            assign_topic_or_partition(&consumer, &topic_or_partition, start_offset, &feedback).await?;
         }
     }
 
