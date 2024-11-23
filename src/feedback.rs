@@ -52,6 +52,9 @@ impl Feedback {
                 print!(" ");
             }
             print!("\r");
+            if std::io::stdout().flush().is_err() {
+                warn!("Could not flush stdout.");
+            }
             *self.last.lock().unwrap() = 0;
         }
     }
@@ -59,8 +62,8 @@ impl Feedback {
 
 #[derive(Clone)]
 pub(crate) struct Feedback {
-    highlighting: Arc<Highlighting>,
-    silent: bool,
+    pub(crate) highlighting: Arc<Highlighting>,
+    pub(crate) silent: bool,
     last: Arc<Mutex<usize>>,
 }
 

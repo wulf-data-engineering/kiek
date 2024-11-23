@@ -73,7 +73,8 @@ pub struct GlueSchemaRegistryFacade {
 }
 
 impl GlueSchemaRegistryFacade {
-    pub fn new(credentials_provider: SharedCredentialsProvider, region: Region, feedback: Feedback) -> Self {
+    pub fn new(credentials_provider: SharedCredentialsProvider, region: Region, feedback: &Feedback) -> Self {
+        let feedback = feedback.clone();
         let client = Client::from_conf(aws_sdk_glue::Config::builder()
             .behavior_version(BehaviorVersion::latest())
             .region(region)

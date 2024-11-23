@@ -2,7 +2,7 @@ use crate::aws::create_credentials_provider;
 use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
-use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, connect, format_timestamp, StartOffset, TopicOrPartition};
+use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, connect, format_timestamp, select_topic_or_partition, FormatBootstrapServers, StartOffset, TopicOrPartition};
 use crate::payload::{format_payload, parse_payload};
 use crate::{kafka, Result};
 use clap::Parser;
@@ -142,15 +142,21 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
 
     let (credentials_provider, region) = create_credentials_provider(args.profile, args.region, args.role_arn).await;
 
-    let glue_schema_registry_facade = GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), feedback.clone());
+    let glue_schema_registry_facade = GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
 
     let bootstrap_servers = args.bootstrap_servers.unwrap_or("127.0.0.1:9092".to_string());
 
-    let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), region.clone(), feedback.clone()).await?;
+    let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), region.clone(), &feedback).await?;
 
-    feedback.info("Connecting", format!("to Kafka cluster at {bootstrap_servers}"));
+    feedback.info("Connecting", format!("to Kafka cluster at {}", FormatBootstrapServers(&bootstrap_servers)));
 
     connect(&consumer).await?;
+
+    let topic_or_partition: TopicOrPartition =
+        match args.topic_or_partition {
+            Some(topic_or_partition) => topic_or_partition,
+            None => select_topic_or_partition(&consumer, &feedback).await?
+        };
 
     let start_offset =
         if args.earliest {
@@ -169,10 +175,10 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
 
     match &args.key {
         Some(key) => {
-            assign_partition_for_key(&consumer, &args.topic_or_partition, key, start_offset, feedback.clone(), highlighting).await?;
+            assign_partition_for_key(&consumer, &topic_or_partition, key, start_offset, &feedback).await?;
         }
         None => {
-            assign_topic_or_partition(&consumer, &args.topic_or_partition, start_offset, highlighting).await?;
+            assign_topic_or_partition(&consumer, &topic_or_partition, start_offset, highlighting).await?;
         }
     }
 

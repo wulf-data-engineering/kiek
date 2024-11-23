@@ -13,9 +13,11 @@ use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
 use chrono::{DateTime, Local};
+use dialoguer::Select;
 use levenshtein::levenshtein;
 use murmur2::{murmur2, KAFKA_SEED};
 use rdkafka::consumer::{Consumer, ConsumerContext};
+use rdkafka::metadata::Metadata;
 use tokio::runtime::Handle;
 use tokio::time::timeout;
 use crate::app::KiekException;
@@ -39,7 +41,7 @@ pub fn create_config<S: Into<String>>(bootstrap_servers: S) -> ClientConfig {
 ///
 /// Create a Kafka consumer to connect to an MSK cluster with IAM authentication.
 ///
-pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provider: SharedCredentialsProvider, region: Region, feedback: Feedback) -> Result<StreamConsumer<IamContext>> {
+pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provider: SharedCredentialsProvider, region: Region, feedback: &Feedback) -> Result<StreamConsumer<IamContext>> {
     let mut client_config = create_config(bootstrap_servers);
     client_config.set("security.protocol", "SASL_SSL");
     client_config.set("sasl.mechanism", "OAUTHBEARER");
@@ -91,13 +93,13 @@ pub(crate) enum StartOffset {
 /// Calculates the partition for the given key and assigns it to the consumer with given offset configuration.
 ///
 
-pub async fn assign_partition_for_key<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &Option<TopicOrPartition>, key: &str, start_offset: StartOffset, feedback: Feedback, highlighting: &Highlighting) -> Result<()>
+pub async fn assign_partition_for_key<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, key: &str, start_offset: StartOffset, feedback: &Feedback) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
     let topic = topic_or_partition.topic();
 
-    let num_partitions = fetch_number_of_partitions(consumer, topic, highlighting).await?;
+    let num_partitions = fetch_number_of_partitions(consumer, topic, &feedback.highlighting).await?;
 
     let partition = partition_for_key(key, num_partitions);
 
@@ -107,9 +109,9 @@ where
             TopicOrPartition::TopicPartition(_, configured_partition) => {
                 if partition != *configured_partition {
                     feedback.warning(format!("Key {bold}{key}{bold:#} would be expected in partition {success}{partition}{success:#} with default partitioning, not in configured partition {error}{configured_partition}{error:#}.",
-                                             bold = highlighting.bold,
-                                             success = highlighting.success,
-                                             error = highlighting.error))
+                                             bold = feedback.highlighting.bold,
+                                             success = feedback.highlighting.success,
+                                             error = feedback.highlighting.error))
                 }
                 *configured_partition
             }
@@ -127,11 +129,81 @@ where
 }
 
 ///
+/// Loads the topics from the Kafka cluster and maybe prompt the user to select one.
+///
+/// - single topic => use that one
+/// - multiple topics => choose topic and then partition
+///
+/// Fail if there is no topic at all or in silent mode if topic choice is ambiguous.
+///
+pub async fn select_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, feedback: &Feedback) -> Result<TopicOrPartition>
+where
+    Ctx: ConsumerContext + 'static,
+{
+    let metadata = consumer.fetch_metadata(None, TIMEOUT)?;
+    let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
+
+    if topic_names.len() == 0 {
+        return Err(KiekException::boxed("No topics available in the Kafka cluster."));
+    } else if topic_names.len() == 1 {
+        feedback.info("Using", format!("topic {topic}", topic = &topic_names[0]));
+        return Ok(TopicOrPartition::Topic(topic_names[0].clone()));
+    } else if feedback.silent {
+        return Err(KiekException::boxed("Multiple topics available in the Kafka cluster. Please specify a topic."));
+    } else {
+        prompt_topic_or_partition(&metadata, &feedback)
+    }
+}
+
+///
+/// Prompt the user to select a topic or partition from the Kafka cluster.
+///
+fn prompt_topic_or_partition(metadata: &Metadata, feedback: &Feedback) -> Result<TopicOrPartition> {
+    let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
+
+    feedback.clear();
+    let theme = feedback.highlighting.dialoguer_theme();
+    let selection = Select::with_theme(&*theme)
+        .with_prompt("Select a topic")
+        .items(&topic_names)
+        .max_length(15)
+        .interact()
+        .unwrap();
+
+    let topic = &topic_names[selection];
+
+    let partitions: Vec<String> =
+        metadata.topics().iter().filter(|t| t.name() == topic).flat_map(|t| (-1..t.partitions().len() as i32).map(|p|
+            if p == -1 {
+                format!("{} (all partitions)", t.name())
+            } else {
+                format!("{color}{}{color:#}{dimmed}-{dimmed:#}{color}{}{color:#}", t.name(), p,
+                        color = feedback.highlighting.partition(p),
+                        dimmed = feedback.highlighting.partition(p).dimmed())
+            }
+        )).collect();
+
+    let partition = Select::with_theme(&*theme)
+        .with_prompt("Select a partition")
+        .items(&partitions)
+        .default(0)
+        .max_length(13)
+        .interact()
+        .unwrap() as i32 - 1;
+
+    if partition == -1 {
+        Ok(TopicOrPartition::Topic(topic.clone()))
+    } else {
+        Ok(TopicOrPartition::TopicPartition(topic.clone(), partition as usize))
+    }
+}
+
+///
 /// Looks up the number of partitions for given topic/partition in the Kafka cluster.
 /// If a partition is given and valid, it assigns it to the consumer with given offset configuration.
 /// If a topic is given, it assigns all partitions to the consumer with given offset configuration.
 ///
-pub async fn assign_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &Option<TopicOrPartition>, start_offset: StartOffset, highlighting: &Highlighting) -> Result<()>
+pub async fn assign_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, start_offset: StartOffset, highlighting: &Highlighting) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
@@ -254,7 +326,8 @@ pub(crate) struct IamContext {
 }
 
 impl IamContext {
-    fn new(region: Region, credentials_provider: SharedCredentialsProvider, feedback: Feedback, rt: Handle) -> Self {
+    fn new(region: Region, credentials_provider: SharedCredentialsProvider, feedback: &Feedback, rt: Handle) -> Self {
+        let feedback = feedback.clone();
         Self { region, credentials_provider, feedback, rt }
     }
 }
@@ -334,6 +407,23 @@ fn format_timestamp_millis(ms: i64, start_date: &DateTime<Local>, highlighting: 
         })
 }
 
+/// Formats the bootstrap servers for the log output with ellipsis for more than one broker
+pub(crate) struct FormatBootstrapServers<'a>(pub(crate) &'a String);
+
+impl<'a> std::fmt::Display for FormatBootstrapServers<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut split = self.0.split(',');
+        match split.next() {
+            Some(first) => write!(f, "{}", first)?,
+            None => return Ok(())
+        }
+        if split.next().is_some() {
+            write!(f, ", ...")?
+        }
+        Ok(())
+    }
+}
+
 // Test the partition_for_key function
 #[cfg(test)]
 mod tests {
@@ -369,5 +459,11 @@ mod tests {
 
         assert_eq!(unknown_topic_message("topic", &topic_names, &Highlighting::plain()),
                    "Topic topic does not exist. Available topics are:\n - abcdefg\n - abcdefgh\n - abcdefghi");
+    }
+
+    #[test]
+    fn test_format_bootstrap_servers() {
+        assert_eq!(format!("{}", FormatBootstrapServers(&"broker1:9092".to_string())), "broker1:9092");
+        assert_eq!(format!("{}", FormatBootstrapServers(&"broker1:9092,broker2:9092".to_string())), "broker1:9092, ...");
     }
 }

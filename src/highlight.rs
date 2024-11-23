@@ -4,12 +4,14 @@ use clap::builder::styling::{AnsiColor, Color, Style};
 use lazy_static::lazy_static;
 use serde_json::Value as JsonValue;
 use std::fmt::{Display, Formatter};
+use dialoguer::theme::{ColorfulTheme, SimpleTheme, Theme};
 
 const PARTITION_COLOR_CODES: [u8; 12] = [124, 19, 29, 136, 63, 88, 27, 36, 214, 160, 69, 66];
 
 #[derive(Clone, Debug)]
 #[allow(missing_copy_implementations)]
 pub struct Highlighting {
+    pub colors: bool,
     pub plain: Style,
     pub bold: Style,
     pub dimmed: Style,
@@ -27,6 +29,7 @@ impl Highlighting {
     /// No highlighting
     pub fn plain() -> Self {
         Self {
+            colors: false,
             plain: Style::new(),
             bold: Style::new(),
             dimmed: Style::new(),
@@ -44,6 +47,7 @@ impl Highlighting {
     /// Color highlighting
     pub fn colors() -> Self {
         Self {
+            colors: true,
             plain: Style::new(),
             bold: Style::new().bold(),
             dimmed: Style::new().dimmed(),
@@ -62,7 +66,16 @@ impl Highlighting {
     pub fn partition(&self, index: i32) -> &Style {
         &self.partition_styles[index as usize % self.partition_styles.len()]
     }
+
+    pub fn dialoguer_theme(&self) -> Box<dyn Theme> {
+        if self.colors {
+            Box::new(ColorfulTheme::default())
+        } else {
+            Box::new(SimpleTheme)
+        }
+    }
 }
+
 
 ///
 /// Formats a JSON value to a string with syntax highlighting.
