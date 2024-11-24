@@ -32,3 +32,5 @@ serde_json = "*"
 murmur2 = "*"
 levenshtein = "*"
 dialoguer = "*"
+reachable = { version = "*", features = ["default"] }
+aws-credential-types = "*"

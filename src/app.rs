@@ -2,20 +2,25 @@ use crate::aws::create_credentials_provider;
 use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
-use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, connect, format_timestamp, select_topic_or_partition, FormatBootstrapServers, StartOffset, TopicOrPartition};
+use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, connect, format_timestamp, select_topic_or_partition, FormatBootstrapServers, StartOffset, TopicOrPartition, DEFAULT_BROKER_STRING};
 use crate::payload::{format_payload, parse_payload};
 use crate::{kafka, Result};
-use clap::Parser;
+use clap::error::ErrorKind;
+use clap::{command, CommandFactory, Parser};
 use lazy_static::lazy_static;
 use log::{debug, error, trace, LevelFilter};
+use rdkafka::consumer::{ConsumerContext, StreamConsumer};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::Message;
+use reachable::TcpTarget;
 use regex::Regex;
 use simple_logger::SimpleLogger;
 use std::error::Error;
 use std::io::IsTerminal;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::str::FromStr;
+use aws_credential_types::provider::error::CredentialsError::ProviderError;
+use aws_sdk_sts::config::ProvideCredentials;
 
 #[derive(Parser, Debug)]
 /// kiek (/ˈkiːk/ - Nothern German for Look!) helps you to look into Kafka topics, especially, if
@@ -23,7 +28,7 @@ use std::str::FromStr;
 /// messages with schemas in AWS Glue Schema Registry.
 /// kiek analyzes the message payloads in a topic, if necessary looks up corresponding AVRO schemas
 /// and prints the payloads to stdout in a human-readable format.
-#[command(version, about, long_about = None)]
+#[command(version, about)]
 struct Args {
     /// Kafka topic/partition name
     ///
@@ -122,10 +127,10 @@ pub async fn run() -> Result<()> {
             Highlighting::colors()
         };
 
-    match kiek(args, &highlighting).await {
+    match setup(args, &highlighting).await {
         Err(e) => {
-            eprintln!("{style}error{style:#}: {e}", style = highlighting.error);
-            std::process::exit(1);
+            let mut cmd = Args::command();
+            cmd.error(ErrorKind::Io, e.to_string()).exit();
         }
         Ok(_) => {
             Ok(())
@@ -133,28 +138,32 @@ pub async fn run() -> Result<()> {
     }
 }
 
-async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
+///
+/// Set up the Kafka consumer, connect, create schema registry facade, assign partitions and
+/// delegate to consuming messages.
+///
+async fn setup(args: Args, highlighting: &Highlighting) -> Result<()> {
     debug!("{:?}", args);
 
     let feedback = Feedback::prepare(highlighting, args.silent);
 
     feedback.info("Set up", "authentication");
 
-    let (credentials_provider, region) = create_credentials_provider(args.profile, args.region, args.role_arn).await;
+    let (credentials_provider, profile, region) = create_credentials_provider(args.profile.clone(), args.region.clone(), args.role_arn.clone()).await;
 
     let glue_schema_registry_facade = GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
 
-    let bootstrap_servers = args.bootstrap_servers.unwrap_or("127.0.0.1:9092".to_string());
+    let bootstrap_servers = args.bootstrap_servers.clone().unwrap_or(DEFAULT_BROKER_STRING.to_string());
 
-    let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), region.clone(), &feedback).await?;
+    let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), profile.clone(), region.clone(), &feedback).await?;
 
     feedback.info("Connecting", format!("to Kafka cluster at {}", FormatBootstrapServers(&bootstrap_servers)));
 
-    connect(&consumer).await?;
+    connect(&consumer, &bootstrap_servers, &highlighting).await?;
 
     let topic_or_partition: TopicOrPartition =
-        match args.topic_or_partition {
-            Some(topic_or_partition) => topic_or_partition,
+        match &args.topic_or_partition {
+            Some(topic_or_partition) => topic_or_partition.clone(),
             None => select_topic_or_partition(&consumer, &feedback).await?
         };
 
@@ -164,8 +173,8 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
         } else if args.latest {
             StartOffset::Latest(0)
         } else {
-            match args.offset {
-                Some(offset) => offset,
+            match &args.offset {
+                Some(offset) => offset.clone(),
                 None if is_local(&bootstrap_servers) => StartOffset::Latest(0),
                 None => StartOffset::Earliest
             }
@@ -182,6 +191,16 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
         }
     }
 
+    consume(args, consumer, glue_schema_registry_facade, &highlighting, &feedback).await
+}
+
+///
+/// Consume messages from the Kafka topic or partition and print them to stdout.
+///
+async fn consume<Ctx>(args: Args, consumer: StreamConsumer<Ctx>, glue_schema_registry_facade: GlueSchemaRegistryFacade, highlighting: &Highlighting, feedback: &Feedback) -> Result<()>
+where
+    Ctx: ConsumerContext + 'static,
+{
     let start_date = chrono::Local::now();
     let mut received_messages: usize = 0;
 
@@ -231,6 +250,7 @@ async fn kiek(args: Args, highlighting: &Highlighting) -> Result<()> {
     }
 }
 
+
 /// In verbose mode, logs everything in the main module at the debug level, and everything else at the info level.
 /// In non-verbose mode, logging is turned off.
 fn configure_logging(verbose: bool, no_colors: bool) {
@@ -246,6 +266,9 @@ lazy_static! {
     static ref TOPIC_PARTITION_REGEX: Regex = Regex::new(r"^(.+)-([0-9]+)$").unwrap();
 }
 
+///
+/// clap parser for topic names and topic-partition names
+///
 impl FromStr for TopicOrPartition {
     type Err = String;
 

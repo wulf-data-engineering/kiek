@@ -36,7 +36,7 @@ pub fn region() -> String {
 ///
 /// Returns the region as well which is sometimes needed for AWS SDK clients.
 ///
-pub async fn create_credentials_provider(profile: Option<String>, region: Option<String>, role_arn: Option<String>) -> (SharedCredentialsProvider, Region) {
+pub async fn create_credentials_provider(profile: Option<String>, region: Option<String>, role_arn: Option<String>) -> (SharedCredentialsProvider, String, Region) {
     let profile = profile.unwrap_or(aws::profile());
     let region = region.unwrap_or(aws::region());
     let region = Region::new(region);
@@ -45,9 +45,8 @@ pub async fn create_credentials_provider(profile: Option<String>, region: Option
 
     match role_arn {
         Some(role_arn) => {
-
             let aws_config = aws_config::defaults(BehaviorVersion::latest())
-                .profile_name(profile)
+                .profile_name(profile.clone())
                 .region(region.clone())
                 .load()
                 .await;
@@ -62,7 +61,7 @@ pub async fn create_credentials_provider(profile: Option<String>, region: Option
 
             info!("Using STS credentials provider assuming role {role_arn}.");
 
-            (SharedCredentialsProvider::new(assume_role_provider), region)
+            (SharedCredentialsProvider::new(assume_role_provider), profile, region)
         }
         None => {
             info!("Using default AWS credentials provider for {profile} in {region}.");
@@ -71,7 +70,7 @@ pub async fn create_credentials_provider(profile: Option<String>, region: Option
                 .region(region.clone())
                 .build()
                 .await;
-            (SharedCredentialsProvider::new(default_provider), region)
+            (SharedCredentialsProvider::new(default_provider), profile, region)
         }
     }
 }
