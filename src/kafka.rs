@@ -61,7 +61,7 @@ pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provide
     Ok(consumer)
 }
 
-pub async fn connect<Ctx>(consumer: &StreamConsumer<Ctx>, bootstrap_servers: &String, highlighting: &Highlighting) -> Result<()>
+pub async fn connect<Ctx>(consumer: &StreamConsumer<Ctx>, highlighting: &Highlighting) -> Result<()>
 where
     Ctx: KiekContext + 'static,
 {
@@ -74,7 +74,7 @@ where
         }
         Some(e) => {
             match e {
-                Err(error) => translate_error(consumer, error, bootstrap_servers, highlighting).await,
+                Err(error) => translate_error(consumer, error, highlighting).await,
                 Ok(_) => unreachable!("Consumer is not assigned yet.")
             }
         }
@@ -89,7 +89,7 @@ where
 /// - MSK/IAM: AWS credentials cannot be provided
 /// - MSK/IAM: AWS profile & credentials are valid but the SSO session has expired
 ///
-async fn translate_error<Ctx>(consumer: &StreamConsumer<Ctx>, error: KafkaError, bootstrap_servers: &String, highlighting: &Highlighting) -> Result<()>
+async fn translate_error<Ctx>(consumer: &StreamConsumer<Ctx>, error: KafkaError, highlighting: &Highlighting) -> Result<()>
 where
     Ctx: KiekContext + 'static,
 {
@@ -99,7 +99,7 @@ where
             match ctx.aws_credentials_provider() {
                 Some(credentials_provider) => {
                     // On MSK/IAM analyze if credentials could be the problem
-                    let profile = ctx.iam_profile().map(|p| p.clone()).unwrap_or(aws::profile());
+                    let profile = ctx.iam_profile().cloned().unwrap_or(aws::profile());
                     match credentials_provider.provide_credentials().await {
                         Err(ProviderError(e)) if format!("{e:?}").contains("Session token not found or invalid") => {
                             KiekException::boxed(format!("Session token not found or invalid. Run {bold}aws sso login --profile {profile}{bold:#} to refresh your session.", bold = highlighting.bold))
@@ -209,7 +209,7 @@ where
 
     let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
 
-    if topic_names.len() == 0 {
+    if topic_names.is_empty() {
         Err(KiekException::boxed("No topics available in the Kafka cluster"))
     } else if topic_names.len() == 1 {
         feedback.info("Using", format!("topic {topic}", topic = &topic_names[0]));
@@ -217,7 +217,7 @@ where
     } else if feedback.silent {
         return Err(KiekException::boxed("Multiple topics available in the Kafka cluster: Please specify a topic."));
     } else {
-        prompt_topic_or_partition(&metadata, None, &feedback).map(|(topic, _)| topic)
+        prompt_topic_or_partition(&metadata, None, feedback).map(|(topic, _)| topic)
     }
 }
 
@@ -228,7 +228,7 @@ where
 /// given topic name.
 ///
 fn prompt_topic_or_partition(metadata: &Metadata, given: Option<&TopicOrPartition>, feedback: &Feedback) -> Result<(TopicOrPartition, usize)> {
-    assert_eq!(feedback.silent, false);
+    assert!(!feedback.silent);
     let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
 
     let given_topic = given.map(|t| t.topic());
@@ -392,10 +392,10 @@ async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: 
 where
     Ctx: 'static + ConsumerContext,
 {
-    let metadata = consumer.fetch_metadata(Some(&topic), TIMEOUT)?;
+    let metadata = consumer.fetch_metadata(Some(topic), TIMEOUT)?;
 
     match metadata.topics().first() {
-        Some(topic_metadata) if topic_metadata.partitions().len() > 0 =>
+        Some(topic_metadata) if !topic_metadata.partitions().is_empty() =>
             Ok(Some(topic_metadata.partitions().len())),
         _ => {
             Ok(None)

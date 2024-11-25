@@ -1,5 +1,4 @@
 use aws_runtime::env_config;
-use aws_types;
 use aws_config::BehaviorVersion;
 use aws_config::default_provider::credentials::DefaultCredentialsChain;
 use aws_config::sts::AssumeRoleProvider;

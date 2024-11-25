@@ -1,11 +1,10 @@
-use std::cell::RefCell;
-use std::sync::Arc;
 use avro_rs::Schema;
 use aws_sdk_glue::Client;
 use aws_sdk_glue::config::BehaviorVersion;
 use aws_sdk_sts::config::SharedCredentialsProvider;
 use aws_types::region::Region;
 use log::{debug, info};
+use tokio::sync::Mutex;
 use crate::Result;
 use uuid::Uuid;
 use crate::feedback::Feedback;
@@ -68,7 +67,7 @@ pub async fn decode_glue_message<'a>(message: GlueMessage<'a>, glue_schema_regis
 ///
 pub struct GlueSchemaRegistryFacade {
     client: Client,
-    cache: Arc<RefCell<std::collections::HashMap<Uuid, Schema>>>,
+    cache: Mutex<std::collections::HashMap<Uuid, Schema>>,
     feedback: Feedback,
 }
 
@@ -83,13 +82,13 @@ impl GlueSchemaRegistryFacade {
 
         Self {
             client,
-            cache: Arc::new(RefCell::new(std::collections::HashMap::new())),
+            cache: Mutex::new(std::collections::HashMap::new()),
             feedback,
         }
     }
 
     pub async fn get_schema(&self, schema_id: &Uuid) -> Result<Schema> {
-        let mut cache = self.cache.borrow_mut();
+        let mut cache = self.cache.lock().await;
 
         if let Some(schema) = cache.get(schema_id) {
             debug!("Schema cache hit for version {}", schema_id);
@@ -111,7 +110,7 @@ impl GlueSchemaRegistryFacade {
 
         let schema = Schema::parse_str(&schema_definition)?;
 
-        cache.insert(schema_id.clone(), schema.clone());
+        cache.insert(*schema_id, schema.clone());
 
         info!("Cached schema version {}.", schema_id);
 

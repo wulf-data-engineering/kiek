@@ -14,7 +14,7 @@ pub async fn parse_payload(payload: Option<&[u8]>, glue_schema_registry_facade: 
     match payload {
         None => Payload::Null,
         Some(payload) => {
-            if payload.len() == 0 {
+            if payload.is_empty() {
                 Payload::String("".to_string())
             } else {
                 parse_payload_bytes(payload, glue_schema_registry_facade).await
@@ -30,18 +30,16 @@ async fn parse_payload_bytes(payload: &[u8], glue_schema_registry_facade: &GlueS
         } else {
             Payload::String(string.to_string())
         }
-    } else {
-        if let Ok(message) = analyze_glue_message(payload) {
-            let schema_id = message.schema_id.clone();
-            match decode_glue_message(message, glue_schema_registry_facade).await {
-                Ok(value) =>
-                    Payload::Avro(value),
-                Err(error) =>
-                    panic!("Could not decode AVRO encoded message with AWS Glue Schema Registry schema id {schema_id}: {error}."),
-            }
-        } else {
-            Payload::Unknown(String::from_utf8_lossy(payload).to_string())
+    } else if let Ok(message) = analyze_glue_message(payload) {
+        let schema_id = message.schema_id;
+        match decode_glue_message(message, glue_schema_registry_facade).await {
+            Ok(value) =>
+                Payload::Avro(value),
+            Err(error) =>
+                panic!("Could not decode AVRO encoded message with AWS Glue Schema Registry schema id {schema_id}: {error}."),
         }
+    } else {
+        Payload::Unknown(String::from_utf8_lossy(payload).to_string())
     }
 }
 

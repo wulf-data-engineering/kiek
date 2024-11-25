@@ -150,7 +150,7 @@ async fn setup(args: Args, highlighting: &Highlighting) -> Result<()> {
 
     feedback.info("Connecting", format!("to Kafka cluster at {}", FormatBootstrapServers(&bootstrap_servers)));
 
-    verify_connection(&bootstrap_servers, &highlighting).await?;
+    verify_connection(&bootstrap_servers, highlighting).await?;
 
     feedback.info("Set up", "authentication");
 
@@ -160,7 +160,7 @@ async fn setup(args: Args, highlighting: &Highlighting) -> Result<()> {
 
     let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), profile.clone(), region.clone(), &feedback).await?;
 
-    connect(&consumer, &bootstrap_servers, &highlighting).await?;
+    connect(&consumer, highlighting).await?;
 
     let topic_or_partition: TopicOrPartition =
         match &args.topic_or_partition {
@@ -181,7 +181,7 @@ async fn setup(args: Args, highlighting: &Highlighting) -> Result<()> {
         }
     }
 
-    consume(args, consumer, glue_schema_registry_facade, &highlighting, &feedback).await
+    consume(args, consumer, glue_schema_registry_facade, highlighting, &feedback).await
 }
 
 ///
@@ -294,7 +294,7 @@ impl FromStr for StartOffset {
                 if offset >= 0 {
                     Err(INVALID_OFFSET.to_string())
                 } else {
-                    Ok(StartOffset::Latest(-1 * offset))
+                    Ok(StartOffset::Latest(-offset))
                 }
             }
         }
@@ -307,7 +307,7 @@ impl FromStr for StartOffset {
 /// - `--earliest` beats `--latest` beats `--offset`
 /// - If no offset is set, `--earliest` is used for local brokers, `--latest` for remote brokers
 ///
-fn calc_start_offset(args: &Args, bootstrap_servers: &String) -> StartOffset {
+fn calc_start_offset(args: &Args, bootstrap_servers: &str) -> StartOffset {
     if args.earliest {
         StartOffset::Earliest
     } else if args.latest {
@@ -324,20 +324,23 @@ fn calc_start_offset(args: &Args, bootstrap_servers: &String) -> StartOffset {
 ///
 /// Check if the given bootstrap servers are local
 ///
-fn is_local(bootstrap_servers: &String) -> bool {
-    match bootstrap_servers.split(':').next() {
-        None => false,
-        Some(host) => {
-            if host == "localhost" {
-                true
-            } else {
-                match IpAddr::from_str(host) {
-                    Ok(ip) => ip.is_loopback(),
-                    Err(_) => false
+fn is_local(bootstrap_servers: &str) -> bool {
+    bootstrap_servers.split(',').all(|server| {
+        match server.split(':').next() {
+            None => false,
+            Some(host) => {
+                if host == "localhost" {
+                    true
+                } else {
+                    match IpAddr::from_str(host) {
+                        Ok(ip) => ip.is_loopback(),
+                        Err(_) => false
+                    }
                 }
             }
         }
-    }
+    })
+
 }
 
 /// Timeout to connect to a broker
@@ -374,7 +377,7 @@ async fn verify_connection(bootstrap_servers: &String, highlighting: &Highlighti
                         .into_iter()
                         .map(|addr| SocketAddr::from((addr, *target.get_portnumber())))
                         .take(2)
-                        .find(|addr| TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).is_ok());
+                        .find(|addr| TcpStream::connect_timeout(addr, CONNECT_TIMEOUT).is_ok());
 
                     match available {
                         Some(addr) => {
@@ -426,43 +429,43 @@ mod tests {
 
     #[test]
     fn test_args_parser() {
-        let args = Args::parse_from(&["kiek", "test-topic", "--bootstrap-servers", "localhost:9092"]);
+        let args = Args::parse_from(["kiek", "test-topic", "--bootstrap-servers", "localhost:9092"]);
         assert_eq!(args.topic_or_partition, Some(TopicOrPartition::Topic("test-topic".to_string())));
         assert_eq!(args.bootstrap_servers, Some("localhost:9092".to_string()));
         assert_eq!(args.key, None);
         assert_eq!(args.profile, None);
         assert_eq!(args.region, None);
         assert_eq!(args.role_arn, None);
-        assert_eq!(args.verbose, false);
+        assert!(!args.verbose);
         assert_eq!(args.offset, None);
 
-        let args = Args::parse_from(&["kiek", "test-topic", "--bootstrap-servers", "localhost:9092", "--profile", "test-profile", "--region", "us-west-1", "--verbose", "--offset", "earliest", "--key", "test-key"]);
+        let args = Args::parse_from(["kiek", "test-topic", "--bootstrap-servers", "localhost:9092", "--profile", "test-profile", "--region", "us-west-1", "--verbose", "--offset", "earliest", "--key", "test-key"]);
         assert_eq!(args.topic_or_partition, Some(TopicOrPartition::Topic("test-topic".to_string())));
         assert_eq!(args.bootstrap_servers, Some("localhost:9092".to_string()));
         assert_eq!(args.key, Some("test-key".to_string()));
         assert_eq!(args.profile, Some("test-profile".to_string()));
         assert_eq!(args.region, Some("us-west-1".to_string()));
         assert_eq!(args.role_arn, None);
-        assert_eq!(args.verbose, true);
+        assert!(args.verbose);
         assert_eq!(args.offset, Some(StartOffset::Earliest));
 
-        let args = Args::parse_from(&["kiek", "test-topic-1", "--bootstrap-servers", "localhost:9092", "--profile", "test-profile", "--region", "us-west-1", "--role-arn", "arn:aws:iam::123456789012:role/test-role", "--offset=-3", "-k", "test-key"]);
+        let args = Args::parse_from(["kiek", "test-topic-1", "--bootstrap-servers", "localhost:9092", "--profile", "test-profile", "--region", "us-west-1", "--role-arn", "arn:aws:iam::123456789012:role/test-role", "--offset=-3", "-k", "test-key"]);
         assert_eq!(args.topic_or_partition, Some(TopicOrPartition::TopicPartition("test-topic".to_string(), 1)));
         assert_eq!(args.bootstrap_servers, Some("localhost:9092".to_string()));
         assert_eq!(args.key, Some("test-key".to_string()));
         assert_eq!(args.profile, Some("test-profile".to_string()));
         assert_eq!(args.region, Some("us-west-1".to_string()));
         assert_eq!(args.role_arn, Some("arn:aws:iam::123456789012:role/test-role".to_string()));
-        assert_eq!(args.verbose, false);
+        assert!(!args.verbose);
         assert_eq!(args.offset, Some(StartOffset::Latest(3)));
     }
 
     #[test]
     fn test_max_one_offset_configuration() {
-        assert!(Args::try_parse_from(&["kiek", "test-topic", "--offset=latest", "--offset=earliest"]).is_err());
-        assert!(Args::try_parse_from(&["kiek", "test-topic", "--latest", "--earliest"]).is_err());
-        assert!(Args::try_parse_from(&["kiek", "test-topic", "--offset=earliest", "--earliest"]).is_err());
-        assert!(Args::try_parse_from(&["kiek", "test-topic", "--offset=-1", "--latest"]).is_err());
+        assert!(Args::try_parse_from(["kiek", "test-topic", "--offset=latest", "--offset=earliest"]).is_err());
+        assert!(Args::try_parse_from(["kiek", "test-topic", "--latest", "--earliest"]).is_err());
+        assert!(Args::try_parse_from(["kiek", "test-topic", "--offset=earliest", "--earliest"]).is_err());
+        assert!(Args::try_parse_from(["kiek", "test-topic", "--offset=-1", "--latest"]).is_err());
     }
 
     #[test]
@@ -490,12 +493,16 @@ mod tests {
 
     #[test]
     fn test_local_check() {
-        assert_eq!(is_local(&"localhost:9092".to_string()), true);
-        assert_eq!(is_local(&"localhost:9092,localhost:19092".to_string()), true);
-        assert_eq!(is_local(&"127.0.0.1:9092".to_string()), true);
-        assert_eq!(is_local(&"127.0.0.1:9092,127.0.0.1:19092".to_string()), true);
+        assert!(is_local("localhost"));
+        assert!(is_local("127.0.0.1"));
+        assert!(is_local("localhost:9092"));
+        assert!(is_local("localhost:9092,localhost:19092"));
+        assert!(is_local("127.0.0.1:9092"));
+        assert!(is_local("127.0.0.1:9092,127.0.0.1:19092"));
 
-        assert_eq!(is_local(&"123.542.123.123:9092,123.542.123.124:9092".to_string()), false);
-        assert_eq!(is_local(&"b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.amazonaws.com:9198".to_string()), false);
+        assert!(!is_local("123.542.123.123:9092,123.542.123.124:9092"));
+        assert!(!is_local("b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.amazonaws.com:9198"));
+        assert!(!is_local("123.542.123.123:9092localhost:9092"));
+        assert!(!is_local("localhost:9092,123.542.123.123:9092"));
     }
 }
