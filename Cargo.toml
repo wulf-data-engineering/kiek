@@ -34,3 +34,4 @@ levenshtein = "*"
 dialoguer = "*"
 reachable = { version = "*", features = ["default"] }
 aws-credential-types = "*"
+termion = "*"

@@ -1,6 +1,8 @@
+use std::cmp::max;
 use std::io::{IsTerminal, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use log::{info, warn};
+use termion::clear;
 use crate::highlight::Highlighting;
 
 ///
@@ -10,7 +12,7 @@ use crate::highlight::Highlighting;
 impl Feedback {
     pub(crate) fn prepare(highlighting: &Highlighting, silent: bool) -> Feedback {
         let interactive = !silent && std::io::stdout().is_terminal();
-        Feedback { highlighting: Arc::new(highlighting.clone()), interactive, last: Arc::new(Mutex::new(0)) }
+        Feedback { highlighting: Arc::new(highlighting.clone()), interactive }
     }
 
     ///
@@ -21,16 +23,25 @@ impl Feedback {
         let message = message.into();
         info!("{header}: {message}");
         if self.interactive {
-            self.clear();
-            for _ in 0..MIN_INFO_HEADER_LENGTH.saturating_sub(header.len()) {
-                print!(" ");
-            }
-            let message = format!("{style}{header}{style:#} {}", message, style = self.highlighting.success);
-            print!("{message}\r");
+            let header_length = max(MIN_INFO_HEADER_LENGTH, header.len()) + 1;
+            let text_length = header_length + message.len();
+
+            // truncate message if it is too long for the terminal
+            // otherwise the overwriting of the next output will not work correctly
+            let message =
+                match termion::terminal_size() {
+                    Ok((width, _)) if text_length > width as usize => {
+                        let mut message = message;
+                        message.truncate(width as usize - header_length - 3);
+                        format!("{}...", message)
+                    }
+                    _ => message,
+                };
+
+            print!("{}{style}{header: >MIN_INFO_HEADER_LENGTH$}{style:#} {message}\r", clear::CurrentLine, style = self.highlighting.success);
             if std::io::stdout().flush().is_err() {
                 warn!("Could not flush stdout.");
             }
-            *self.last.lock().unwrap() = message.len();
         }
     }
 
@@ -39,8 +50,7 @@ impl Feedback {
     ///
     pub(crate) fn warning<S: Into<String>>(&self, message: S) {
         if self.interactive {
-            self.clear();
-            println!("{style}warning{style:#}: {}", message.into(), style = self.highlighting.warning);
+            println!("{}{style}warning{style:#}: {}", clear::CurrentLine, message.into(), style = self.highlighting.warning);
         }
     }
 
@@ -49,18 +59,8 @@ impl Feedback {
     ///
     pub(crate) fn clear(&self) {
         if self.interactive {
-            let last = *self.last.lock().unwrap();
-            if last > 0 {
-                print!("\r");
-                for _ in 0..last {
-                    print!(" ");
-                }
-                print!("\r");
-                if std::io::stdout().flush().is_err() {
-                    warn!("Could not flush stdout.");
-                }
-                *self.last.lock().unwrap() = 0;
-            }
+            print!("{}", clear::CurrentLine);
+            std::io::stdout().flush().unwrap();
         }
     }
 }
@@ -69,7 +69,6 @@ impl Feedback {
 pub(crate) struct Feedback {
     pub(crate) highlighting: Arc<Highlighting>,
     pub(crate) interactive: bool,
-    last: Arc<Mutex<usize>>,
 }
 
 const MIN_INFO_HEADER_LENGTH: usize = 12;

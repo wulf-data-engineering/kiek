@@ -15,7 +15,6 @@ with syntax highlighting in a **human-readable format**.
 
 ### Publish
 
-- Terminal clearing
 - (local) Kafka without auth
 - Integration Testing
 - CI/CD
