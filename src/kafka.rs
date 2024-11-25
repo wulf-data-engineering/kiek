@@ -197,7 +197,7 @@ where
 /// - single topic => use that one
 /// - multiple topics => choose topic and then partition
 ///
-/// Fail if there is no topic at all or in silent mode if topic choice is ambiguous.
+/// Fail if there is no topic at all or if topic choice is ambiguous in non-interactive mode.
 ///
 pub async fn select_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, feedback: &Feedback) -> Result<TopicOrPartition>
 where
@@ -213,11 +213,11 @@ where
         Err(KiekException::boxed("No topics available in the Kafka cluster"))
     } else if topic_names.len() == 1 {
         feedback.info("Using", format!("topic {topic}", topic = &topic_names[0]));
-        return Ok(TopicOrPartition::Topic(topic_names[0].clone()));
-    } else if feedback.silent {
-        return Err(KiekException::boxed("Multiple topics available in the Kafka cluster: Please specify a topic."));
-    } else {
+        Ok(TopicOrPartition::Topic(topic_names[0].clone()))
+    } else if feedback.interactive {
         prompt_topic_or_partition(&metadata, None, feedback).map(|(topic, _)| topic)
+    } else {
+        Err(KiekException::boxed("Multiple topics available in the Kafka cluster: Please specify a topic."))
     }
 }
 
@@ -228,7 +228,7 @@ where
 /// given topic name.
 ///
 fn prompt_topic_or_partition(metadata: &Metadata, given: Option<&TopicOrPartition>, feedback: &Feedback) -> Result<(TopicOrPartition, usize)> {
-    assert!(!feedback.silent);
+    assert!(feedback.interactive);
     let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
 
     let given_topic = given.map(|t| t.topic());
@@ -327,13 +327,12 @@ where
     match (num_partitions, topic_or_partition) {
         (Some(num_partitions), _) => Ok((topic_or_partition.clone(), num_partitions)),
         (None, _) => {
-            if feedback.silent {
-                Err(KiekException::boxed("Topic does not exist."))
-            } else {
+            if feedback.interactive {
                 feedback.info("Fetching", "topics from Kafka cluster");
-
                 let metadata = consumer.fetch_metadata(None, TIMEOUT)?;
                 prompt_topic_or_partition(&metadata, Some(topic_or_partition), feedback)
+            } else {
+                Err(KiekException::boxed("Topic does not exist."))
             }
         }
     }

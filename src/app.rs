@@ -97,8 +97,9 @@ struct Args {
 
     /// Deactivates syntax highlighting
     ///
-    /// As a default kiek uses syntax highlighting for better readability when run in terminals.
-    /// This option deactivates it, e.g. for piping the output to another program or file or running in CI.
+    /// When running in a terminal kiek uses syntax highlighting for better readability.
+    /// This option deactivates it if the terminal does not support colors.
+    /// Piping the output to a file or another program automatically deactivates colors.
     #[arg(long, action, aliases = ["plain"])]
     no_colors: bool,
 
@@ -106,6 +107,8 @@ struct Args {
     ///
     /// If set, kiek omits all progress indicators, warnings and just prints the Kafka messages.
     /// Dialogs like asking for a topic name or schema registry URL are replaced with fatal errors.
+    /// Piping the output to a file or another program is automatically silent.
+    ///
     #[arg(group = "verbosity", short, long, action)]
     silent: bool,
 
@@ -117,13 +120,15 @@ struct Args {
 pub async fn run() -> Result<()> {
     let args = Args::parse();
 
-    configure_logging(args.verbose, args.no_colors);
+    let colors = !args.no_colors && std::io::stdout().is_terminal();
+
+    configure_logging(args.verbose, colors);
 
     let highlighting =
-        if args.no_colors || !std::io::stdout().is_terminal() {
-            Highlighting::plain()
-        } else {
+        if colors {
             Highlighting::colors()
+        } else {
+            Highlighting::plain()
         };
 
     match setup(args, &highlighting).await {
@@ -243,9 +248,8 @@ where
 
 /// In verbose mode, logs everything in the main module at the debug level, and everything else at the info level.
 /// In non-verbose mode, logging is turned off.
-fn configure_logging(verbose: bool, no_colors: bool) {
+fn configure_logging(verbose: bool, colors: bool) {
     if verbose {
-        let colors = !no_colors;
         SimpleLogger::new().with_colors(colors).with_level(LevelFilter::Info).with_module_level(module_path!(), LevelFilter::Debug).init().unwrap();
     } else {
         SimpleLogger::new().with_level(LevelFilter::Off).init().unwrap();
