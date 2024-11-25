@@ -24,7 +24,7 @@ aws-sdk-glue = "*"
 
 # Specific application
 clap = { version = "*", features = ["derive"] }
-rdkafka ={ version = "*", features = ["default", "ssl"] }
+rdkafka = { version = "0.37.0", features = ["default", "ssl"] }
 aws-msk-iam-sasl-signer = "*"
 uuid = { version = "1.11.0", features = ["v4"] }
 avro-rs = "*"

@@ -1,11 +1,9 @@
-use crate::app::KiekException;
-use crate::aws::list_profiles;
+use crate::context::KiekContext;
+use crate::exception::KiekException;
 use crate::feedback::Feedback;
 use crate::highlight::Highlighting;
-use crate::{aws, CoreResult, Result};
-use aws_credential_types::provider::error::CredentialsError::ProviderError;
-use aws_credential_types::provider::ProvideCredentials;
-use aws_msk_iam_sasl_signer::generate_auth_token_from_credentials_provider;
+use crate::msk_iam_context::IamContext;
+use crate::Result;
 use aws_sdk_sts::config::SharedCredentialsProvider;
 use aws_types::region::Region;
 use chrono::{DateTime, Local};
@@ -13,27 +11,24 @@ use dialoguer::theme::Theme;
 use dialoguer::Select;
 use futures::FutureExt;
 use levenshtein::levenshtein;
-use log::{error, info};
+use log::info;
 use murmur2::{murmur2, KAFKA_SEED};
-use rdkafka::client::{ClientContext, OAuthToken};
+use rdkafka::client::ClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::stream_consumer::StreamConsumer;
-use rdkafka::consumer::{Consumer, ConsumerContext};
+use rdkafka::consumer::Consumer;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::metadata::Metadata;
 use rdkafka::topic_partition_list::TopicPartitionList;
 use rdkafka::{Offset, Timestamp};
 use std::collections::HashMap;
-use std::thread;
 use std::time::Duration;
-use tokio::runtime::Handle;
-use tokio::time::timeout;
 
 pub(crate) const DEFAULT_PORT: i32 = 9092;
 pub(crate) const DEFAULT_BROKER_STRING: &str = "127.0.0.1:9092";
 
-/// Timeout for the Kafka operations
-const TIMEOUT: Duration = Duration::from_secs(10);
+/// Timeout for the Kafka metadata operations
+const TIMEOUT: Duration = Duration::from_secs(2);
 
 ///
 /// Create basic client configuration with the provided bootstrap servers
@@ -54,17 +49,22 @@ pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provide
     client_config.set("security.protocol", "SASL_SSL");
     client_config.set("sasl.mechanism", "OAUTHBEARER");
 
-    let client_context = IamContext::new(credentials_provider, profile, region, feedback, Handle::current());
+    let client_context = IamContext::new(credentials_provider, profile, region, feedback);
 
     let consumer: StreamConsumer<IamContext> = client_config.create_with_context(client_context)?;
 
     Ok(consumer)
 }
 
+///
+/// Prepare the Kafka consumer context for authentication.
+///
 pub async fn connect<Ctx>(consumer: &StreamConsumer<Ctx>, highlighting: &Highlighting) -> Result<()>
 where
     Ctx: KiekContext + 'static,
 {
+    consumer.context().verify(highlighting).await?;
+
     // Make sure there is an OAuth token before obtaining metadata
     // See https://github.com/yuhao-su/aws-msk-iam-sasl-signer-rs/blob/a6efa88801333d634c8370cf85128bce6b513c11/examples/consumer.rs
     match consumer.recv().now_or_never() {
@@ -74,7 +74,7 @@ where
         }
         Some(e) => {
             match e {
-                Err(error) => translate_error(consumer, error, highlighting).await,
+                Err(e) => Err(KiekException::from(e)),
                 Ok(_) => unreachable!("Consumer is not assigned yet.")
             }
         }
@@ -82,53 +82,24 @@ where
 }
 
 ///
-/// Translate Kafka error to a more user-friendly message.
+/// If result is Kafka broker transport failure, delay the error message until the Kafka log message
+/// is available.
 ///
-/// An authentication error can have many reasons:
-/// - MSK/IAM: AWS profile does not exist
-/// - MSK/IAM: AWS credentials cannot be provided
-/// - MSK/IAM: AWS profile & credentials are valid but the SSO session has expired
-///
-async fn translate_error<Ctx>(consumer: &StreamConsumer<Ctx>, error: KafkaError, highlighting: &Highlighting) -> Result<()>
+async fn map_errors<Ctx, R>(consumer: &StreamConsumer<Ctx>, result: std::result::Result<R, KafkaError>) -> Result<R>
 where
     Ctx: KiekContext + 'static,
 {
-    Err(match error.rdkafka_error_code() {
-        Some(RDKafkaErrorCode::Authentication) => {
-            let ctx = consumer.client().context();
-            match ctx.aws_credentials_provider() {
-                Some(credentials_provider) => {
-                    // On MSK/IAM analyze if credentials could be the problem
-                    let profile = ctx.iam_profile().cloned().unwrap_or(aws::profile());
-                    match credentials_provider.provide_credentials().await {
-                        Err(ProviderError(e)) if format!("{e:?}").contains("Session token not found or invalid") => {
-                            KiekException::boxed(format!("Session token not found or invalid. Run {bold}aws sso login --profile {profile}{bold:#} to refresh your session.", bold = highlighting.bold))
-                        }
-                        Err(ProviderError(e)) if format!("{e:?}").contains("is not authorized to perform: sts:AssumeRole") => {
-                            KiekException::boxed(format!("Assuming the passed role failed. Check if profile {profile} has the rights."))
-                        }
-                        Err(_) if !list_profiles().await.unwrap_or(vec![profile.clone()]).contains(&profile) => {
-                            KiekException::boxed(format!("AWS profile {profile} does not exist."))
-                        }
-                        Err(e) => {
-                            error!("Failed to provide AWS credentials: {e:?}");
-                            KiekException::boxed(e.to_string())
-                        }
-                        Ok(_) => {
-                            // IAM credentials are valid => most likely the profile has no access to the MSK cluster
-                            KiekException::boxed(format!("Authentication with IAM credentials failed. Check if profile {profile} has access rights."))
-                        }
-                    }
+    match result {
+        Ok(r) => Ok(r),
+        Err(error) => {
+            Err(match error.rdkafka_error_code() {
+                Some(RDKafkaErrorCode::BrokerTransportFailure) => {
+                    KiekException::delayed(error.to_string(), &consumer.context().last_fail())
                 }
-                None => {
-                    // not MSK/IAM
-                    KiekException::boxed("Authentication failed. Check your credentials.")
-                }
-            }
+                _ => Box::new(error)
+            })
         }
-        // other trouble
-        _ => Box::new(error)
-    })
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -205,19 +176,19 @@ where
 {
     feedback.info("Fetching", "topics from Kafka cluster");
 
-    let metadata = consumer.fetch_metadata(None, TIMEOUT)?;
+    let metadata = map_errors(consumer, consumer.fetch_metadata(None, TIMEOUT)).await?;
 
     let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
 
     if topic_names.is_empty() {
-        Err(KiekException::boxed("No topics available in the Kafka cluster"))
+        Err(KiekException::new("No topics available in the Kafka cluster"))
     } else if topic_names.len() == 1 {
         feedback.info("Using", format!("topic {topic}", topic = &topic_names[0]));
         Ok(TopicOrPartition::Topic(topic_names[0].clone()))
     } else if feedback.interactive {
         prompt_topic_or_partition(&metadata, None, feedback).map(|(topic, _)| topic)
     } else {
-        Err(KiekException::boxed("Multiple topics available in the Kafka cluster: Please specify a topic."))
+        Err(KiekException::new("Multiple topics available in the Kafka cluster: Please specify a topic."))
     }
 }
 
@@ -322,7 +293,7 @@ where
 {
     feedback.info("Fetching", format!("number of partitions of {}", topic_or_partition.topic()));
 
-    let num_partitions = fetch_number_of_partitions(consumer, topic_or_partition.topic()).await?;
+    let num_partitions = fetch_number_of_partitions(consumer, topic_or_partition.topic(), &feedback.highlighting).await?;
 
     match (num_partitions, topic_or_partition) {
         (Some(num_partitions), _) => Ok((topic_or_partition.clone(), num_partitions)),
@@ -332,7 +303,7 @@ where
                 let metadata = consumer.fetch_metadata(None, TIMEOUT)?;
                 prompt_topic_or_partition(&metadata, Some(topic_or_partition), feedback)
             } else {
-                Err(KiekException::boxed("Topic does not exist."))
+                Err(KiekException::new("Topic does not exist."))
             }
         }
     }
@@ -367,7 +338,7 @@ where
             }
             TopicOrPartition::TopicPartition(_, partition) => {
                 if partition > num_partitions {
-                    return Err(KiekException::boxed(format!("Partition {partition} is out of range for {topic} with {num_partitions} partitions.")));
+                    return Err(KiekException::new(format!("Partition {partition} is out of range for {topic} with {num_partitions} partitions.")));
                 }
 
                 let partition_offsets: HashMap<(String, i32), Offset> =
@@ -387,11 +358,11 @@ where
 ///
 /// Fetches the number of partitions for topic with given name.
 ///
-async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str) -> Result<Option<usize>>
+async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str, highlighting: &Highlighting) -> Result<Option<usize>>
 where
-    Ctx: 'static + ConsumerContext,
+    Ctx: KiekContext + 'static,
 {
-    let metadata = consumer.fetch_metadata(Some(topic), TIMEOUT)?;
+    let metadata = map_errors(consumer, consumer.fetch_metadata(Some(topic), TIMEOUT)).await?;
 
     match metadata.topics().first() {
         Some(topic_metadata) if !topic_metadata.partitions().is_empty() =>
@@ -407,83 +378,6 @@ fn offset_for(start_offset: StartOffset) -> Offset {
         StartOffset::Earliest => Offset::Beginning,
         StartOffset::Latest(0) => Offset::End,
         StartOffset::Latest(offset) => Offset::OffsetTail(offset),
-    }
-}
-
-pub(crate) trait KiekContext: ConsumerContext {
-    fn iam_profile(&self) -> Option<&String>;
-    fn aws_credentials_provider(&self) -> Option<&SharedCredentialsProvider>;
-}
-
-///
-/// This client & consumer context generates OAuth tokens for the Kafka cluster based on an AWS
-/// credentials provider.
-///
-#[derive(Clone)]
-pub(crate) struct IamContext {
-    credentials_provider: SharedCredentialsProvider,
-    profile: String,
-    region: Region,
-    feedback: Feedback,
-    rt: Handle,
-}
-
-impl IamContext {
-    fn new(credentials_provider: SharedCredentialsProvider, profile: String, region: Region, feedback: &Feedback, rt: Handle) -> Self {
-        let feedback = feedback.clone();
-        Self { credentials_provider, profile, region, feedback, rt }
-    }
-}
-
-impl ConsumerContext for IamContext {}
-
-impl ClientContext for IamContext {
-    const ENABLE_REFRESH_OAUTH_TOKEN: bool = true;
-
-    ///
-    /// Use generate_auth_token_from_credentials_provider from the aws_msk_iam_sasl_signer crate to
-    /// generate an OAuth token from the AWS credentials provider.
-    ///
-    fn generate_oauth_token(&self, _oauthbearer_config: Option<&str>) -> CoreResult<OAuthToken> {
-        let region = self.region.clone();
-        let credentials_provider = self.credentials_provider.clone();
-        let handle = self.rt.clone();
-        self.feedback.info("Authorizing", "using AWS IAM auth token");
-        let (token, expiration_time_ms) = {
-            let handle = thread::spawn(move || {
-                handle.block_on(async {
-                    timeout(TIMEOUT, generate_auth_token_from_credentials_provider(region, credentials_provider).map(|r| {
-                        match r {
-                            Ok(token) => {
-                                info!("Generated OAuth token: {} {}", token.0, token.1);
-                                Ok(token)
-                            }
-                            Err(err) => {
-                                error!("Failed to generate OAuth token: {}", err);
-                                Err(err)
-                            }
-                        }
-                    }
-                    )).await
-                })
-            });
-            handle.join().unwrap()??
-        };
-        Ok(OAuthToken {
-            token,
-            principal_name: "".to_string(),
-            lifetime_ms: expiration_time_ms,
-        })
-    }
-}
-
-impl KiekContext for IamContext {
-    fn iam_profile(&self) -> Option<&String> {
-        Some(&self.profile)
-    }
-
-    fn aws_credentials_provider(&self) -> Option<&SharedCredentialsProvider> {
-        Some(&self.credentials_provider)
     }
 }
 

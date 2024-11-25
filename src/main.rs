@@ -5,6 +5,9 @@ mod payload;
 mod highlight;
 mod glue;
 mod feedback;
+mod msk_iam_context;
+mod context;
+mod exception;
 
 use std::error::Error;
 

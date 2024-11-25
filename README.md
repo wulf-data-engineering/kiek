@@ -15,10 +15,8 @@ with syntax highlighting in a **human-readable format**.
 
 ### Publish
 
-- Pass C logging to info!
-- Failing Gracefully and Explaining Errors: schema lookup failure
+- Terminal clearing
 - (local) Kafka without auth
-- SASL/SCRAM?
 - Integration Testing
 - CI/CD
 - Publish to homebrew
@@ -26,19 +24,20 @@ with syntax highlighting in a **human-readable format**.
 ### Increment Capabilities
 
 - Services
-- Schema Registry
-    - Support Redpanda
-    - Support Confluent Schema Registry
+  - SASL/SCRAM with user & password
+  - Schema Registry
+  - Support Redpanda
+  - Support Confluent Schema Registry
 - UX
-    - Indicate reached head of topic with --earliest
-    - Explain error connecting / failing to look up schemas
-    - Topic Profiles / --env for environment profiles
-    - Try 19202 after 9202 if no brokers are configured
+  - Indicate reached head of topic with --earliest
+  - Failing Gracefully and Explaining Errors: schema lookup failure
+  - Topic Profiles / --env for environment profiles
+  - Try 19202 after 9202 if no brokers are configured
 - Navigation
-    - search since timestamp (fixed, relative)
-    - Default limit and continue with <enter>
+  - search since timestamp (fixed, relative)
+  - Default limit and continue with <enter>
 - Output Formats
-    - Key, Value, Timestamp, Offset, Partition, Topic
+  - Key, Value, Timestamp, Offset, Partition, Topic
 
 ### Increment to kieker
 

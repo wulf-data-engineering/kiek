@@ -15,11 +15,11 @@ use rdkafka::Message;
 use reachable::TcpTarget;
 use regex::Regex;
 use simple_logger::SimpleLogger;
-use std::error::Error;
 use std::io::IsTerminal;
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::time::Duration;
+use crate::exception::KiekException;
 
 #[derive(Parser, Debug)]
 /// kiek (/ˈkiːk/ - Nothern German for Look!) helps you to look into Kafka topics, especially, if
@@ -344,7 +344,6 @@ fn is_local(bootstrap_servers: &str) -> bool {
             }
         }
     })
-
 }
 
 /// Timeout to connect to a broker
@@ -364,14 +363,14 @@ async fn verify_connection(bootstrap_servers: &String, highlighting: &Highlighti
     match TcpTarget::from_str(&first_server) {
         Err(e) => {
             error!("Could not parse broker address {first_server}: {e:?}");
-            Err(KiekException::boxed(e.to_string()))
+            Err(KiekException::from(e))
         }
         Ok(target) => {
             info!("Resolving {}", target.get_fqhn());
             match target.get_resolve_policy().resolve(target.get_fqhn()) {
                 Err(e) => {
                     error!("Could not resolve {}: {e}", target.get_fqhn());
-                    Err(KiekException::boxed(format!("Failed to resolve broker address {first_server}.")))
+                    Err(KiekException::new(format!("Failed to resolve broker address {first_server}.")))
                 }
                 Ok(addrs) => {
                     let mut attempt_addrs = addrs.clone();
@@ -391,9 +390,9 @@ async fn verify_connection(bootstrap_servers: &String, highlighting: &Highlighti
                         None => {
                             error!("Could not reach {addrs:?}.");
                             if bootstrap_servers == DEFAULT_BROKER_STRING {
-                                Err(KiekException::boxed(format!("Failed to connect to Kafka cluster at {DEFAULT_BROKER_STRING}. Use {bold}-b, --bootstrap-servers{bold:#} to configure.", bold = highlighting.bold)))
+                                Err(KiekException::new(format!("Failed to connect to Kafka cluster at {DEFAULT_BROKER_STRING}. Use {bold}-b, --bootstrap-servers{bold:#} to configure.", bold = highlighting.bold)))
                             } else {
-                                Err(KiekException::boxed(format!("Failed to connect to Kafka cluster at {}.", FormatBootstrapServers(bootstrap_servers))))
+                                Err(KiekException::new(format!("Failed to connect to Kafka cluster at {}.", FormatBootstrapServers(bootstrap_servers))))
                             }
                         }
                     }
@@ -402,29 +401,6 @@ async fn verify_connection(bootstrap_servers: &String, highlighting: &Highlighti
         }
     }
 }
-
-
-///
-/// `KiekException` is a custom error type that can be used to wrap any error message
-///
-#[derive(Clone, PartialEq, Debug)]
-pub(crate) struct KiekException {
-    pub message: String,
-}
-
-impl KiekException {
-    pub fn boxed<S: Into<String>>(message: S) -> Box<dyn Error + Send + Sync> {
-        Box::new(Self { message: message.into() })
-    }
-}
-
-impl std::fmt::Display for KiekException {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl Error for KiekException {}
 
 // Test the arg parser
 #[cfg(test)]
