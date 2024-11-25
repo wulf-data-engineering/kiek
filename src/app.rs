@@ -2,13 +2,13 @@ use crate::aws::create_credentials_provider;
 use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
-use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, connect, format_timestamp, select_topic_or_partition, FormatBootstrapServers, StartOffset, TopicOrPartition, DEFAULT_BROKER_STRING};
+use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, connect, format_timestamp, select_topic_or_partition, FormatBootstrapServers, StartOffset, TopicOrPartition, DEFAULT_BROKER_STRING, DEFAULT_PORT};
 use crate::payload::{format_payload, parse_payload};
 use crate::{kafka, Result};
 use clap::error::ErrorKind;
 use clap::{command, CommandFactory, Parser};
 use lazy_static::lazy_static;
-use log::{debug, error, trace, LevelFilter};
+use log::{debug, error, info, trace, LevelFilter};
 use rdkafka::consumer::{ConsumerContext, StreamConsumer};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::Message;
@@ -19,8 +19,7 @@ use std::error::Error;
 use std::io::IsTerminal;
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::str::FromStr;
-use aws_credential_types::provider::error::CredentialsError::ProviderError;
-use aws_sdk_sts::config::ProvideCredentials;
+use std::time::Duration;
 
 #[derive(Parser, Debug)]
 /// kiek (/ˈkiːk/ - Nothern German for Look!) helps you to look into Kafka topics, especially, if
@@ -147,17 +146,19 @@ async fn setup(args: Args, highlighting: &Highlighting) -> Result<()> {
 
     let feedback = Feedback::prepare(highlighting, args.silent);
 
+    let bootstrap_servers = args.bootstrap_servers.clone().unwrap_or(DEFAULT_BROKER_STRING.to_string());
+
+    feedback.info("Connecting", format!("to Kafka cluster at {}", FormatBootstrapServers(&bootstrap_servers)));
+
+    verify_connection(&bootstrap_servers, &highlighting).await?;
+
     feedback.info("Set up", "authentication");
 
     let (credentials_provider, profile, region) = create_credentials_provider(args.profile.clone(), args.region.clone(), args.role_arn.clone()).await;
 
     let glue_schema_registry_facade = GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
 
-    let bootstrap_servers = args.bootstrap_servers.clone().unwrap_or(DEFAULT_BROKER_STRING.to_string());
-
     let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), profile.clone(), region.clone(), &feedback).await?;
-
-    feedback.info("Connecting", format!("to Kafka cluster at {}", FormatBootstrapServers(&bootstrap_servers)));
 
     connect(&consumer, &bootstrap_servers, &highlighting).await?;
 
@@ -167,18 +168,7 @@ async fn setup(args: Args, highlighting: &Highlighting) -> Result<()> {
             None => select_topic_or_partition(&consumer, &feedback).await?
         };
 
-    let start_offset =
-        if args.earliest {
-            StartOffset::Earliest
-        } else if args.latest {
-            StartOffset::Latest(0)
-        } else {
-            match &args.offset {
-                Some(offset) => offset.clone(),
-                None if is_local(&bootstrap_servers) => StartOffset::Latest(0),
-                None => StartOffset::Earliest
-            }
-        };
+    let start_offset = calc_start_offset(&args, &bootstrap_servers);
 
     feedback.info("Assigning", "partitions");
 
@@ -312,6 +302,26 @@ impl FromStr for StartOffset {
 }
 
 ///
+/// Calculates the start offset for the consumer based on configuration:
+///
+/// - `--earliest` beats `--latest` beats `--offset`
+/// - If no offset is set, `--earliest` is used for local brokers, `--latest` for remote brokers
+///
+fn calc_start_offset(args: &Args, bootstrap_servers: &String) -> StartOffset {
+    if args.earliest {
+        StartOffset::Earliest
+    } else if args.latest {
+        StartOffset::Latest(0)
+    } else {
+        match &args.offset {
+            Some(offset) => offset.clone(),
+            None if is_local(bootstrap_servers) => StartOffset::Earliest,
+            None => StartOffset::Latest(0)
+        }
+    }
+}
+
+///
 /// Check if the given bootstrap servers are local
 ///
 fn is_local(bootstrap_servers: &String) -> bool {
@@ -329,6 +339,63 @@ fn is_local(bootstrap_servers: &String) -> bool {
         }
     }
 }
+
+/// Timeout to connect to a broker
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+
+///
+/// Verify that the broker is reachable.
+///
+async fn verify_connection(bootstrap_servers: &String, highlighting: &Highlighting) -> Result<()> {
+    let first_server = bootstrap_servers.split(',').next().unwrap();
+    // Add default port if not set
+    let first_server = if first_server.contains(':') {
+        first_server.to_string()
+    } else {
+        format!("{first_server}:{DEFAULT_PORT}")
+    };
+    match TcpTarget::from_str(&first_server) {
+        Err(e) => {
+            error!("Could not parse broker address {first_server}: {e:?}");
+            Err(KiekException::boxed(e.to_string()))
+        }
+        Ok(target) => {
+            info!("Resolving {}", target.get_fqhn());
+            match target.get_resolve_policy().resolve(target.get_fqhn()) {
+                Err(e) => {
+                    error!("Could not resolve {}: {e}", target.get_fqhn());
+                    Err(KiekException::boxed(format!("Failed to resolve broker address {first_server}.")))
+                }
+                Ok(addrs) => {
+                    let mut attempt_addrs = addrs.clone();
+                    attempt_addrs.sort(); // IpV4 first
+                    info!("Checking {attempt_addrs:?} for reachability.");
+                    let available = attempt_addrs
+                        .into_iter()
+                        .map(|addr| SocketAddr::from((addr, *target.get_portnumber())))
+                        .take(2)
+                        .find(|addr| TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).is_ok());
+
+                    match available {
+                        Some(addr) => {
+                            info!("Reached {addr}.");
+                            Ok(())
+                        }
+                        None => {
+                            error!("Could not reach {addrs:?}.");
+                            if bootstrap_servers == DEFAULT_BROKER_STRING {
+                                Err(KiekException::boxed(format!("Failed to connect to Kafka cluster at {DEFAULT_BROKER_STRING}. Use {bold}-b, --bootstrap-servers{bold:#} to configure.", bold = highlighting.bold)))
+                            } else {
+                                Err(KiekException::boxed(format!("Failed to connect to Kafka cluster at {}.", FormatBootstrapServers(bootstrap_servers))))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 ///
 /// `KiekException` is a custom error type that can be used to wrap any error message

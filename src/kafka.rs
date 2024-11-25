@@ -1,7 +1,10 @@
 use crate::app::KiekException;
+use crate::aws::list_profiles;
 use crate::feedback::Feedback;
 use crate::highlight::Highlighting;
 use crate::{aws, CoreResult, Result};
+use aws_credential_types::provider::error::CredentialsError::ProviderError;
+use aws_credential_types::provider::ProvideCredentials;
 use aws_msk_iam_sasl_signer::generate_auth_token_from_credentials_provider;
 use aws_sdk_sts::config::SharedCredentialsProvider;
 use aws_types::region::Region;
@@ -20,20 +23,13 @@ use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::metadata::Metadata;
 use rdkafka::topic_partition_list::TopicPartitionList;
 use rdkafka::{Offset, Timestamp};
-use reachable::{ParseTargetError, ResolveTargetError, TcpTarget};
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt::format;
-use std::net::{IpAddr, SocketAddr, TcpStream};
-use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
-use aws_credential_types::provider::error::CredentialsError::{CredentialsNotLoaded, ProviderError};
-use aws_credential_types::provider::ProvideCredentials;
 use tokio::runtime::Handle;
 use tokio::time::timeout;
-use crate::aws::list_profiles;
 
+pub(crate) const DEFAULT_PORT: i32 = 9092;
 pub(crate) const DEFAULT_BROKER_STRING: &str = "127.0.0.1:9092";
 
 /// Timeout for the Kafka operations
@@ -72,7 +68,10 @@ where
     // Make sure there is an OAuth token before obtaining metadata
     // See https://github.com/yuhao-su/aws-msk-iam-sasl-signer-rs/blob/a6efa88801333d634c8370cf85128bce6b513c11/examples/consumer.rs
     match consumer.recv().now_or_never() {
-        None => Ok(()),
+        None => {
+            info!("Connected.");
+            Ok(())
+        }
         Some(e) => {
             match e {
                 Err(error) => translate_error(consumer, error, bootstrap_servers, highlighting).await,
@@ -83,9 +82,12 @@ where
 }
 
 ///
-/// If the error is an authentication error, translate it to a more user-friendly message.
-/// Check if the broker is actually reachable.
-/// If the broker is reachable, delegate to actual auth error translation.
+/// Translate Kafka error to a more user-friendly message.
+///
+/// An authentication error can have many reasons:
+/// - MSK/IAM: AWS profile does not exist
+/// - MSK/IAM: AWS credentials cannot be provided
+/// - MSK/IAM: AWS profile & credentials are valid but the SSO session has expired
 ///
 async fn translate_error<Ctx>(consumer: &StreamConsumer<Ctx>, error: KafkaError, bootstrap_servers: &String, highlighting: &Highlighting) -> Result<()>
 where
@@ -93,79 +95,40 @@ where
 {
     Err(match error.rdkafka_error_code() {
         Some(RDKafkaErrorCode::Authentication) => {
-            // Authentication means either not reachable or an actual authentication error
-
-            let first_server = bootstrap_servers.split(',').next().unwrap();
-            match TcpTarget::from_str(first_server) {
-                Err(e) => KiekException::boxed(e.to_string()),
-                Ok(target) => {
-                    match target.get_resolve_policy().resolve(target.get_fqhn()) {
-                        Err(_) => KiekException::boxed(format!("Failed to resolve broker address {first_server}.")),
-                        Ok(addrs) => {
-                            let available = addrs
-                                .into_iter()
-                                .map(|addr| SocketAddr::from((addr, *target.get_portnumber())))
-                                .any(|addr| TcpStream::connect_timeout(&addr, TIMEOUT).is_ok());
-
-                            if available {
-                                translate_auth_error(consumer, highlighting).await
-                            } else {
-                                if bootstrap_servers == DEFAULT_BROKER_STRING {
-                                    KiekException::boxed(format!("Failed to connect to Kafka cluster at {DEFAULT_BROKER_STRING}. Use {bold}-b, --bootstrap-servers{bold:#} to configure.", bold = highlighting.bold))
-                                } else {
-                                    KiekException::boxed(format!("Failed to connect to Kafka cluster at {}.", FormatBootstrapServers(bootstrap_servers)))
-                                }
-                            }
+            let ctx = consumer.client().context();
+            match ctx.aws_credentials_provider() {
+                Some(credentials_provider) => {
+                    // On MSK/IAM analyze if credentials could be the problem
+                    let profile = ctx.iam_profile().map(|p| p.clone()).unwrap_or(aws::profile());
+                    match credentials_provider.provide_credentials().await {
+                        Err(ProviderError(e)) if format!("{e:?}").contains("Session token not found or invalid") => {
+                            KiekException::boxed(format!("Session token not found or invalid. Run {bold}aws sso login --profile {profile}{bold:#} to refresh your session.", bold = highlighting.bold))
+                        }
+                        Err(ProviderError(e)) if format!("{e:?}").contains("is not authorized to perform: sts:AssumeRole") => {
+                            KiekException::boxed(format!("Assuming the passed role failed. Check if profile {profile} has the rights."))
+                        }
+                        Err(_) if !list_profiles().await.unwrap_or(vec![profile.clone()]).contains(&profile) => {
+                            KiekException::boxed(format!("AWS profile {profile} does not exist."))
+                        }
+                        Err(e) => {
+                            error!("Failed to provide AWS credentials: {e:?}");
+                            KiekException::boxed(e.to_string())
+                        }
+                        Ok(_) => {
+                            // IAM credentials are valid => most likely the profile has no access to the MSK cluster
+                            KiekException::boxed(format!("Authentication with IAM credentials failed. Check if profile {profile} has access rights."))
                         }
                     }
+                }
+                None => {
+                    // not MSK/IAM
+                    KiekException::boxed("Authentication failed. Check your credentials.")
                 }
             }
         }
         // other trouble
         _ => Box::new(error)
     })
-}
-
-///
-/// An authentication error can have many reasons:
-/// - MSK/IAM: AWS profile does not exist
-/// - MSK/IAM: AWS credentials cannot be provided
-/// - MSK/IAM: AWS profile & credentials are valid but the SSO session has expired
-///
-async fn translate_auth_error<Ctx>(consumer: &StreamConsumer<Ctx>, highlighting: &Highlighting) -> Box<dyn Error + Send + Sync>
-where
-    Ctx: KiekContext + 'static,
-{
-    let ctx = consumer.client().context();
-    match ctx.aws_credentials_provider() {
-        Some(credentials_provider) => {
-            // On MSK/IAM analyze if credentials could be the problem
-            let profile = ctx.iam_profile().map(|p| p.clone()).unwrap_or(aws::profile());
-            match credentials_provider.provide_credentials().await {
-                Err(ProviderError(e)) if format!("{e:?}").contains("Session token not found or invalid") => {
-                    KiekException::boxed(format!("Session token not found or invalid. Run {bold}aws sso login --profile {profile}{bold:#} to refresh your session.", bold = highlighting.bold))
-                }
-                Err(ProviderError(e)) if format!("{e:?}").contains("is not authorized to perform: sts:AssumeRole") => {
-                    KiekException::boxed(format!("Assuming the passed role failed. Check if profile {profile} has the rights."))
-                }
-                Err(_) if !list_profiles().await.unwrap_or(vec![profile.clone()]).contains(&profile) => {
-                    KiekException::boxed(format!("AWS profile {profile} does not exist."))
-                }
-                Err(e) => {
-                    error!("Failed to provide AWS credentials: {e:?}");
-                    KiekException::boxed(e.to_string())
-                }
-                Ok(_) => {
-                    // IAM credentials are valid => most likely the profile has no access to the MSK cluster
-                    KiekException::boxed(format!("Authentication with IAM credentials failed. Check if profile {profile} has access rights."))
-                }
-            }
-        }
-        None => {
-            // not MSK/IAM
-            KiekException::boxed("Authentication failed. Check your credentials.")
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -243,6 +206,7 @@ where
     feedback.info("Fetching", "topics from Kafka cluster");
 
     let metadata = consumer.fetch_metadata(None, TIMEOUT)?;
+
     let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
 
     if topic_names.len() == 0 {

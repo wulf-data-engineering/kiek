@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use log::warn;
+use log::{info, warn};
 use crate::highlight::Highlighting;
 
 ///
@@ -17,12 +17,14 @@ impl Feedback {
     /// Will be overwritten by the next output.
     ///
     pub(crate) fn info<S: Into<String>>(&self, header: &str, message: S) {
+        let message = message.into();
+        info!("{header}: {message}");
         if !self.silent {
             self.clear();
             for _ in 0..MIN_INFO_HEADER_LENGTH.saturating_sub(header.len()) {
                 print!(" ");
             }
-            let message = format!("{style}{header}{style:#} {}", message.into(), style = self.highlighting.success);
+            let message = format!("{style}{header}{style:#} {}", message, style = self.highlighting.success);
             print!("{message}\r");
             if std::io::stdout().flush().is_err() {
                 warn!("Could not flush stdout.");
