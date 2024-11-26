@@ -13,7 +13,6 @@ use futures::FutureExt;
 use levenshtein::levenshtein;
 use log::info;
 use murmur2::{murmur2, KAFKA_SEED};
-use rdkafka::client::ClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::stream_consumer::StreamConsumer;
 use rdkafka::consumer::Consumer;
@@ -293,7 +292,7 @@ where
 {
     feedback.info("Fetching", format!("number of partitions of {}", topic_or_partition.topic()));
 
-    let num_partitions = fetch_number_of_partitions(consumer, topic_or_partition.topic(), &feedback.highlighting).await?;
+    let num_partitions = fetch_number_of_partitions(consumer, topic_or_partition.topic()).await?;
 
     match (num_partitions, topic_or_partition) {
         (Some(num_partitions), _) => Ok((topic_or_partition.clone(), num_partitions)),
@@ -358,7 +357,7 @@ where
 ///
 /// Fetches the number of partitions for topic with given name.
 ///
-async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str, highlighting: &Highlighting) -> Result<Option<usize>>
+async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str) -> Result<Option<usize>>
 where
     Ctx: KiekContext + 'static,
 {

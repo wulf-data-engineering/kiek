@@ -15,6 +15,7 @@ with syntax highlighting in a **human-readable format**.
 
 ### Publish
 
+- SASL/SCRAM with user & password
 - (local) Kafka without auth
 - Integration Testing
 - CI/CD
@@ -23,7 +24,6 @@ with syntax highlighting in a **human-readable format**.
 ### Increment Capabilities
 
 - Services
-  - SASL/SCRAM with user & password
   - Schema Registry
   - Support Redpanda
   - Support Confluent Schema Registry
