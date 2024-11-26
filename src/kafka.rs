@@ -1,4 +1,4 @@
-use crate::context::KiekContext;
+use crate::context::{DefaultKiekContext, KiekContext};
 use crate::exception::KiekException;
 use crate::feedback::Feedback;
 use crate::highlight::Highlighting;
@@ -23,6 +23,7 @@ use rdkafka::{Offset, Timestamp};
 use std::collections::HashMap;
 use std::time::Duration;
 use termion::clear;
+use crate::args::{Authentication, Password};
 
 pub(crate) const DEFAULT_PORT: i32 = 9092;
 pub(crate) const DEFAULT_BROKER_STRING: &str = "127.0.0.1:9092";
@@ -36,10 +37,44 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 pub fn create_config<S: Into<String>>(bootstrap_servers: S) -> ClientConfig {
     let mut client_config = ClientConfig::new();
     client_config.set("bootstrap.servers", bootstrap_servers);
-    client_config.set("group.id", "kieker");
-    client_config.set("enable.auto.commit", "false");
+    client_config.set("group.id", "kieker"); // required but irrelevant for simple consumer
+    client_config.set("enable.auto.commit", "false"); // never commit offsets
+    client_config.set_log_level(rdkafka::config::RDKafkaLogLevel::Debug); // required for capturing log messages
     client_config
 }
+
+///
+/// Create a Kafka consumer to connect to a Kafka cluster without or with username/password SASL
+/// authentication.
+///
+pub async fn create_consumer(bootstrap_servers: &String, authentication: Authentication, credentials: Option<(String, Password)>) -> Result<StreamConsumer<DefaultKiekContext>> {
+    let mut client_config = create_config(bootstrap_servers);
+
+    if authentication != Authentication::None {
+        let mechanism = match authentication {
+            Authentication::Plain => "PLAIN",
+            Authentication::Sha256 => "SCRAM-SHA-256",
+            Authentication::Sha512 => "SCRAM-SHA-512",
+            _ => unreachable!()
+        };
+
+        client_config.set("security.protocol", "SASL_SSL");
+        client_config.set("sasl.mechanism", mechanism);
+
+        info!("Using SASL_SSL as security protocol and {mechanism} as SASL mechanism.");
+
+        let (username, password) = credentials.ok_or(KiekException::new("No credentials provided for SASL authentication."))?;
+        client_config.set("sasl.username", &username);
+        client_config.set("sasl.password", password.plain());
+    } else {
+        info!("Using default (PLAINTEXT) security protocol and no credentials.");
+    }
+
+    let context = DefaultKiekContext::new();
+
+    Ok(client_config.create_with_context(context)?)
+}
+
 
 ///
 /// Create a Kafka consumer to connect to an MSK cluster with IAM authentication.
@@ -49,11 +84,9 @@ pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provide
     client_config.set("security.protocol", "SASL_SSL");
     client_config.set("sasl.mechanism", "OAUTHBEARER");
 
-    let client_context = IamContext::new(credentials_provider, profile, region, feedback);
+    let context = IamContext::new(credentials_provider, profile, region, feedback);
 
-    let consumer: StreamConsumer<IamContext> = client_config.create_with_context(client_context)?;
-
-    Ok(consumer)
+    Ok(client_config.create_with_context(context)?)
 }
 
 ///

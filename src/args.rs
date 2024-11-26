@@ -1,20 +1,19 @@
+use crate::aws::list_profiles;
+use crate::exception::KiekException;
 use crate::feedback::Feedback;
 use crate::highlight::Highlighting;
 use crate::kafka::{StartOffset, TopicOrPartition, DEFAULT_BROKER_STRING};
+use crate::Result;
 use clap::error::ErrorKind;
-use clap::{command, CommandFactory, Parser};
+use clap::{CommandFactory, Parser};
 use lazy_static::lazy_static;
 use regex::Regex;
+use serde::Serialize;
 use std::error::Error;
-use std::ffi::OsString;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::IsTerminal;
 use std::net::IpAddr;
 use std::str::FromStr;
-use serde::Serialize;
-use crate::aws::list_profiles;
-use crate::exception::KiekException;
-use crate::Result;
 
 #[derive(Parser, Debug)]
 /// kiek (/ˈkiːk/ - Nothern German for Look!) helps you to look into Kafka topics, especially, if
@@ -61,7 +60,7 @@ pub struct Args {
     /// If omitted and AWS related options are set, assumes MSK IAM authentication.
     /// Otherwise, no authentication is attempted.
     #[arg(short, long, aliases = ["auth"], value_name = "plain|msk-iam|...")]
-    authentication: Option<AuthenticationType>,
+    authentication: Option<Authentication>,
 
     /// Username for SASL/PLAIN authentication
     ///
@@ -150,10 +149,11 @@ impl Args {
         args
     }
 
+    #[cfg(test)]
     async fn try_validated_from<I, T>(itr: I) -> Result<Self>
     where
         I: IntoIterator<Item=T>,
-        T: Into<OsString> + Clone,
+        T: Into<std::ffi::OsString> + Clone,
     {
         let args = Args::try_parse_from(itr)?;
         args.validate().await?;
@@ -176,11 +176,6 @@ impl Args {
         }
 
         Ok(())
-    }
-
-    fn invalid(message: &str) -> ! {
-        let mut cmd = Self::command();
-        cmd.error(ErrorKind::ArgumentConflict, message).exit();
     }
 
     ///
@@ -226,21 +221,16 @@ impl Args {
     /// - If profile, region or role_arn is set, returns MSK IAM
     /// - Otherwise, no authentication is attempted
     ///
-    pub fn authentication(&self, credentials: Option<(String, Password)>) -> Authentication {
-        let (username, password) = credentials.unwrap_or_else(|| ("".to_string(), Password("".to_string())));
-        match &self.authentication {
-            Some(AuthenticationType::Plain) => Authentication::SaslPlain(username, password),
-            Some(AuthenticationType::Sha256) => Authentication::SaslSha256(username, password),
-            Some(AuthenticationType::Sha512) => Authentication::SaslSha512(username, password),
-            Some(AuthenticationType::MskIam) => Authentication::MskIam(self.profile.clone(), self.region.clone(), self.role_arn.clone()),
-
-            None if self.username().is_some() => Authentication::SaslPlain(username, password),
-
-            None if self.profile.is_some() || self.region.is_some() || self.role_arn.is_some() =>
-                Authentication::MskIam(self.profile.clone(), self.region.clone(), self.role_arn.clone()),
-
-            _ => Authentication::None
-        }
+    pub fn authentication(&self) -> Authentication {
+        self.authentication.clone().unwrap_or_else(|| {
+            if self.username().is_some() {
+                Authentication::Plain
+            } else if self.profile.is_some() || self.region.is_some() || self.role_arn.is_some() {
+                Authentication::MskIam
+            } else {
+                Authentication::None
+            }
+        })
     }
 
     ///
@@ -262,15 +252,6 @@ impl Args {
             }
         }
     }
-}
-
-#[derive(Debug)]
-pub(crate) enum Authentication {
-    None,
-    SaslPlain(String, Password),
-    SaslSha256(String, Password),
-    SaslSha512(String, Password),
-    MskIam(Option<String>, Option<String>, Option<String>),
 }
 
 lazy_static! {
@@ -324,12 +305,14 @@ impl FromStr for StartOffset {
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
-enum AuthenticationType {
+pub(crate) enum Authentication {
     Plain,
     #[value(alias("iam"))]
     MskIam,
     Sha256,
     Sha512,
+    #[value(hide = true)]
+    None,
 }
 
 ///
@@ -465,14 +448,14 @@ mod tests {
     #[test]
     fn test_auth_configuration() {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            assert_eq!(Args::try_validated_from(["kiek", "-a", "plain", "-u", "required"]).await.unwrap().authentication, Some(AuthenticationType::Plain));
-            assert_eq!(Args::try_validated_from(["kiek", "--authentication", "plain", "-u", "required"]).await.unwrap().authentication, Some(AuthenticationType::Plain));
+            assert_eq!(Args::try_validated_from(["kiek", "-a", "plain", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Plain));
+            assert_eq!(Args::try_validated_from(["kiek", "--authentication", "plain", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Plain));
 
-            assert_eq!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).await.unwrap().authentication, Some(AuthenticationType::MskIam));
-            assert_eq!(Args::try_validated_from(["kiek", "-a", "iam"]).await.unwrap().authentication, Some(AuthenticationType::MskIam));
+            assert_eq!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).await.unwrap().authentication, Some(Authentication::MskIam));
+            assert_eq!(Args::try_validated_from(["kiek", "-a", "iam"]).await.unwrap().authentication, Some(Authentication::MskIam));
 
-            assert_eq!(Args::try_validated_from(["kiek", "-a", "sha256", "-u", "required"]).await.unwrap().authentication, Some(AuthenticationType::Sha256));
-            assert_eq!(Args::try_validated_from(["kiek", "-a", "sha512", "-u", "required"]).await.unwrap().authentication, Some(AuthenticationType::Sha512));
+            assert_eq!(Args::try_validated_from(["kiek", "-a", "sha256", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Sha256));
+            assert_eq!(Args::try_validated_from(["kiek", "-a", "sha512", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Sha512));
 
             // SASL/* requires username
             assert!(Args::try_validated_from(["kiek", "-a", "plain"]).await.is_err());
@@ -502,6 +485,14 @@ mod tests {
             assert!(Args::try_validated_from(["kiek", "-u", "foo", "--pw", "bar"]).await.is_ok());
             assert!(Args::try_validated_from(["kiek", "-u", "foo:bar"]).await.is_ok());
             assert!(Args::try_validated_from(["kiek", "-u", "foo:bar", "--pw", "bar"]).await.is_err());
+        });
+    }
+
+    #[test]
+    fn test_authentication() {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let args = Args::try_validated_from(["kiek", "-a", "plain", "-u", "foo:bar", "-p", "aws-profile"]).await.unwrap();
+            assert_eq!(args.authentication(), Authentication::Plain);
         });
     }
 

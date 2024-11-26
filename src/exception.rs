@@ -1,5 +1,7 @@
 use std::error::Error;
 use std::sync::{Arc, Mutex};
+use lazy_static::lazy_static;
+use regex::Regex;
 
 ///
 /// `KiekException` is a custom error type that can be used to wrap any error message
@@ -13,6 +15,10 @@ use std::sync::{Arc, Mutex};
 pub(crate) struct KiekException {
     message: String,
     delayed: Arc<Mutex<Option<String>>>,
+}
+
+lazy_static! {
+    static ref KAFKA_ERROR_REGEX: Regex = Regex::new(r"^\[[^\]]+\]: [^ ]+: (.+) \(after .+\)$").unwrap();
 }
 
 impl KiekException {
@@ -31,8 +37,13 @@ impl KiekException {
     fn user_friendly(fail: &str) -> String {
         if fail.contains("SASL authentication error") && fail.contains("Access denied") {
             "SASL authentication error: Access denied.".to_string()
+        } else if fail.contains("Disconnected while requesting ApiVersion") {
+            "Disconnected while requesting API version: Most likely the authentication mechanism is wrong and SSL is expected. Verify your -a, --authentication configuration.".to_string()
+        } else if fail.contains("Unsupported SASL mechanism: broker's supported mechanisms: OAUTHBEARER,AWS_MSK_IAM") {
+            "The broker requires MSK IAM based authentication. Specify using --authentication=msk-iam.".to_string()
         } else {
-            fail.to_string()
+            // Try to decompose the error message to the "most" user-friendly message
+            KAFKA_ERROR_REGEX.captures(fail).map_or_else(|| fail.to_string(), |c| c[1].to_string())
         }
     }
 }

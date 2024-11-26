@@ -15,8 +15,6 @@ with syntax highlighting in a **human-readable format**.
 
 ### Publish
 
-- SASL/SCRAM with user & password
-- (local) Kafka without auth
 - Integration Testing
 - CI/CD
 - Publish to homebrew
@@ -24,14 +22,11 @@ with syntax highlighting in a **human-readable format**.
 ### Increment Capabilities
 
 - Services
-  - Schema Registry
-  - Support Redpanda
-  - Support Confluent Schema Registry
+  - Support (Confluent) Schema Registry
 - UX
-  - Indicate reached head of topic with --earliest
   - Failing Gracefully and Explaining Errors: schema lookup failure
+  - Indicate reached head of topic with --earliest
   - Topic Profiles / --env for environment profiles
-  - Try 19202 after 9202 if no brokers are configured
 - Navigation
   - search since timestamp (fixed, relative)
   - Default limit and continue with <enter>

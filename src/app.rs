@@ -3,7 +3,7 @@ use crate::exception::KiekException;
 use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
-use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, connect, format_timestamp, select_topic_or_partition, FormatBootstrapServers, TopicOrPartition, DEFAULT_BROKER_STRING, DEFAULT_PORT};
+use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, format_timestamp, select_topic_or_partition, FormatBootstrapServers, TopicOrPartition, DEFAULT_BROKER_STRING, DEFAULT_PORT};
 use crate::payload::{format_payload, parse_payload};
 use crate::{kafka, Result};
 use log::{debug, error, info, trace, LevelFilter};
@@ -15,7 +15,8 @@ use simple_logger::SimpleLogger;
 use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::time::Duration;
-use crate::args::{Args, Password};
+use crate::args::{Args, Authentication, Password};
+use crate::context::KiekContext;
 
 pub async fn run() -> Result<()> {
     let args = Args::validated().await;
@@ -33,8 +34,7 @@ pub async fn run() -> Result<()> {
 }
 
 ///
-/// Set up the Kafka consumer, connect, create schema registry facade, assign partitions and
-/// delegate to consuming messages.
+/// Set up the Kafka consumer, create schema registry facade and continue with connecting.
 ///
 async fn setup(args: Args) -> Result<()> {
     debug!("{:?}", args);
@@ -45,9 +45,9 @@ async fn setup(args: Args) -> Result<()> {
 
     let credentials = credentials(&args, &feedback)?;
 
-    let authentication = args.authentication(credentials);
+    let authentication = args.authentication();
 
-    info!("Authentication mechanism: {:?}", authentication);
+    info!("Authentication mechanism {authentication:?} with credentials {credentials:?}.");
 
     let bootstrap_servers = args.bootstrap_servers();
 
@@ -61,14 +61,31 @@ async fn setup(args: Args) -> Result<()> {
 
     let glue_schema_registry_facade = GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
 
-    let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), profile.clone(), region.clone(), &feedback).await?;
+    match authentication {
+        Authentication::MskIam => {
+            let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), profile.clone(), region.clone(), &feedback).await?;
+            connect(args, &feedback, glue_schema_registry_facade, consumer).await
+        }
+        _ => {
+            let consumer = kafka::create_consumer(&bootstrap_servers, authentication, credentials).await?;
+            connect(args, &feedback, glue_schema_registry_facade, consumer).await
+        }
+    }
+}
 
-    connect(&consumer, &highlighting).await?;
+///
+/// Connect to the broker, assign partition(s) and delegate to consuming messages.
+///
+async fn connect<C>(args: Args, feedback: &Feedback, glue_schema_registry_facade: GlueSchemaRegistryFacade, consumer: StreamConsumer<C>) -> Result<()>
+where
+    C: KiekContext + 'static,
+{
+    kafka::connect(&consumer, &feedback.highlighting).await?;
 
     let topic_or_partition: TopicOrPartition =
         match &args.topic_or_partition {
             Some(topic_or_partition) => topic_or_partition.clone(),
-            None => select_topic_or_partition(&consumer, &feedback).await?
+            None => select_topic_or_partition(&consumer, feedback).await?
         };
 
     let start_offset = args.start_offset();
@@ -77,37 +94,14 @@ async fn setup(args: Args) -> Result<()> {
 
     match &args.key {
         Some(key) => {
-            assign_partition_for_key(&consumer, &topic_or_partition, key, start_offset, &feedback).await?;
+            assign_partition_for_key(&consumer, &topic_or_partition, key, start_offset, feedback).await?;
         }
         None => {
-            assign_topic_or_partition(&consumer, &topic_or_partition, start_offset, &feedback).await?;
+            assign_topic_or_partition(&consumer, &topic_or_partition, start_offset, feedback).await?;
         }
     }
 
-    consume(args, consumer, glue_schema_registry_facade, &feedback).await
-}
-
-///
-/// If username is provided, password is required.
-/// If password is missing ask for it in interactive mode or fail.
-///
-fn credentials(args: &Args, feedback: &Feedback) -> Result<Option<(String, Password)>> {
-    match (args.username(), args.password()) {
-        (Some(username), Some(password)) =>
-            Ok(Some((username, password))), // credentials are passed
-        (Some(username), _) if feedback.interactive => {
-            let password =
-                dialoguer::Password::new()
-                    .with_prompt(format!("Enter password for user {bold}{username}{bold:#}", bold = feedback.highlighting.bold))
-                    .allow_empty_password(true)
-                    .interact()?;
-            Ok(Some((username, password.parse::<Password>()?)))
-        }
-        (Some(username), _) => {
-            Err(KiekException::new(format!("Password is required for user {username}. Use {bold}--pw, --password{bold:#} or {bold}-u {username}:<PASSWORD>{bold:#}.", bold = feedback.highlighting.bold)))
-        }
-        _ => Ok(None), // No credentials required
-    }
+    consume(args, consumer, glue_schema_registry_facade, feedback).await
 }
 
 ///
@@ -166,7 +160,6 @@ where
     }
 }
 
-
 /// In verbose mode, logs everything in the main module at the debug level, and everything else at the info level.
 /// In non-verbose mode, logging is turned off.
 fn configure_logging(verbose: bool, colors: bool) {
@@ -174,6 +167,28 @@ fn configure_logging(verbose: bool, colors: bool) {
         SimpleLogger::new().with_colors(colors).with_level(LevelFilter::Info).with_module_level(module_path!(), LevelFilter::Debug).init().unwrap();
     } else {
         SimpleLogger::new().with_level(LevelFilter::Off).init().unwrap();
+    }
+}
+
+///
+/// If username is provided, password is required.
+/// If password is missing ask for it in interactive mode or fail.
+///
+fn credentials(args: &Args, feedback: &Feedback) -> Result<Option<(String, Password)>> {
+    match (args.username(), args.password()) {
+        (Some(username), Some(password)) =>
+            Ok(Some((username, password))), // credentials are passed
+        (Some(username), _) if feedback.interactive => {
+            let password =
+                dialoguer::Password::new()
+                    .with_prompt(format!("Enter password for user {bold}{username}{bold:#}", bold = feedback.highlighting.bold))
+                    .interact()?;
+            Ok(Some((username, password.parse::<Password>()?)))
+        }
+        (Some(username), _) => {
+            Err(KiekException::new(format!("Password is required for user {username}. Use {bold}--pw, --password{bold:#} or {bold}-u {username}:<PASSWORD>{bold:#}.", bold = feedback.highlighting.bold)))
+        }
+        _ => Ok(None), // No credentials required
     }
 }
 
