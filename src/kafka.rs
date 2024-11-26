@@ -226,6 +226,7 @@ fn prompt_topic_or_partition(metadata: &Metadata, given: Option<&TopicOrPartitio
     let select = Select::with_theme(&*theme)
         .with_prompt(prompt)
         .items(&topic_names)
+        .report(true)
         .max_length(15);
 
     // preselect the topic with the best Levenshtein distance

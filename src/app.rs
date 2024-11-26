@@ -18,7 +18,7 @@ use std::time::Duration;
 use crate::args::Args;
 
 pub async fn run() -> Result<()> {
-    let args = Args::validated();
+    let args = Args::validated().await;
 
     configure_logging(args.verbose, args.colors());
 
@@ -40,7 +40,10 @@ async fn setup(args: Args) -> Result<()> {
     debug!("{:?}", args);
 
     let highlighting = args.highlighting();
+
     let feedback = args.feedback();
+
+    let _credentials = credentials(&args, &feedback)?;
 
     let bootstrap_servers = args.bootstrap_servers();
 
@@ -78,6 +81,29 @@ async fn setup(args: Args) -> Result<()> {
     }
 
     consume(args, consumer, glue_schema_registry_facade, &feedback).await
+}
+
+///
+/// If username is provided, password is required.
+/// If password is missing ask for it in interactive mode or fail.
+///
+fn credentials(args: &Args, feedback: &Feedback) -> Result<Option<(String, String)>> {
+    match (args.username(), args.password()) {
+        (Some(username), Some(password)) =>
+            Ok(Some((username, password))), // credentials are passed
+        (Some(username), _) if feedback.interactive => {
+            let password =
+                dialoguer::Password::new()
+                    .with_prompt(format!("Enter password for user {bold}{username}{bold:#}", bold = feedback.highlighting.bold))
+                    .allow_empty_password(true)
+                    .interact()?;
+            Ok(Some((username, password)))
+        }
+        (Some(username), _) => {
+            Err(KiekException::new(format!("Password is required for user {username}. Use {bold}--pw, --password{bold:#} or {bold}-u {username}:<PASSWORD>{bold:#}.", bold = feedback.highlighting.bold)))
+        }
+        _ => Ok(None), // No credentials required
+    }
 }
 
 ///

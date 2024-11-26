@@ -12,6 +12,7 @@ use std::io::IsTerminal;
 use std::net::IpAddr;
 use std::str::FromStr;
 use serde::Serialize;
+use crate::aws::list_profiles;
 use crate::exception::KiekException;
 use crate::Result;
 
@@ -60,7 +61,7 @@ pub struct Args {
     /// If omitted and AWS related options are set, assumes MSK IAM authentication.
     /// Otherwise, no authentication is attempted.
     #[arg(short, long, aliases = ["auth"], value_name = "plain|msk-iam|...")]
-    pub authentication: Option<AuthenticationType>,
+    authentication: Option<AuthenticationType>,
 
     /// Username for SASL/PLAIN authentication
     ///
@@ -143,26 +144,33 @@ impl Args {
     ///
     /// Parse and validate the command line arguments.
     ///
-    pub fn validated() -> Self {
+    pub async fn validated() -> Self {
         let args = Args::parse();
-        args.validate().unwrap_or_else(|e| Args::fail(e));
+        args.validate().await.unwrap_or_else(|e| Args::fail(e));
         args
     }
 
-    fn try_validated_from<I, T>(itr: I) -> Result<Self>
+    async fn try_validated_from<I, T>(itr: I) -> Result<Self>
     where
         I: IntoIterator<Item=T>,
         T: Into<OsString> + Clone,
     {
         let args = Args::try_parse_from(itr)?;
-        args.validate()?;
+        args.validate().await?;
         Ok(args)
     }
 
-    fn validate(&self) -> Result<()> {
+    async fn validate(&self) -> Result<()> {
         match &self.username {
             Some(Username(_, Some(_))) if self.password.is_some() => {
                 return Err(KiekException::new("Use either --password or --username with password."));
+            }
+            Some(Username(_, None)) if self.password.is_none() && self.profile.is_some() => {
+                let profile = self.profile.clone().unwrap();
+                let profiles = list_profiles().await.unwrap_or(vec![profile.clone()]);
+                if !profiles.contains(&profile) {
+                    return Err(KiekException::new(format!("You passed a username but no password. You passed a non-existing AWS profile instead. Please note: {bold}-p, --profile{bold:#} specifies the AWS profile. {bold}--pw, --password{bold:#} sets the password for the username.", bold = self.highlighting().bold)));
+                }
             }
             _ => {}
         }
@@ -230,6 +238,14 @@ impl Args {
             }
         }
     }
+}
+
+enum Authentication {
+    None,
+    SaslPlain(String, Option<String>),
+    MskIam(Option<String>, Option<String>, Option<String>),
+    SaslSha256(String, Option<String>),
+    SaslSha512(String, Option<String>),
 }
 
 lazy_static! {
@@ -413,47 +429,55 @@ mod tests {
 
     #[test]
     fn test_max_one_offset_configuration() {
-        assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=latest", "--offset=earliest"]).is_err());
-        assert!(Args::try_validated_from(["kiek", "test-topic", "--latest", "--earliest"]).is_err());
-        assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=earliest", "--earliest"]).is_err());
-        assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=-1", "--latest"]).is_err());
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=latest", "--offset=earliest"]).await.is_err());
+            assert!(Args::try_validated_from(["kiek", "test-topic", "--latest", "--earliest"]).await.is_err());
+            assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=earliest", "--earliest"]).await.is_err());
+            assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=-1", "--latest"]).await.is_err());
+        });
     }
 
     #[test]
     fn test_auth_configuration() {
-        assert_eq!(Args::try_validated_from(["kiek", "-a", "plain", "-u", "required"]).unwrap().authentication, Some(AuthenticationType::Plain));
-        assert_eq!(Args::try_validated_from(["kiek", "--authentication", "plain", "-u", "required"]).unwrap().authentication, Some(AuthenticationType::Plain));
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            assert_eq!(Args::try_validated_from(["kiek", "-a", "plain", "-u", "required"]).await.unwrap().authentication, Some(AuthenticationType::Plain));
+            assert_eq!(Args::try_validated_from(["kiek", "--authentication", "plain", "-u", "required"]).await.unwrap().authentication, Some(AuthenticationType::Plain));
 
-        assert_eq!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).unwrap().authentication, Some(AuthenticationType::MskIam));
-        assert_eq!(Args::try_validated_from(["kiek", "-a", "iam"]).unwrap().authentication, Some(AuthenticationType::MskIam));
+            assert_eq!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).await.unwrap().authentication, Some(AuthenticationType::MskIam));
+            assert_eq!(Args::try_validated_from(["kiek", "-a", "iam"]).await.unwrap().authentication, Some(AuthenticationType::MskIam));
 
-        assert_eq!(Args::try_validated_from(["kiek", "-a", "sha256", "-u", "required"]).unwrap().authentication, Some(AuthenticationType::Sha256));
-        assert_eq!(Args::try_validated_from(["kiek", "-a", "sha512", "-u", "required"]).unwrap().authentication, Some(AuthenticationType::Sha512));
+            assert_eq!(Args::try_validated_from(["kiek", "-a", "sha256", "-u", "required"]).await.unwrap().authentication, Some(AuthenticationType::Sha256));
+            assert_eq!(Args::try_validated_from(["kiek", "-a", "sha512", "-u", "required"]).await.unwrap().authentication, Some(AuthenticationType::Sha512));
 
-        // SASL/* requires username
-        assert!(Args::try_validated_from(["kiek", "-a", "plain"]).is_err());
-        assert!(Args::try_validated_from(["kiek", "-a", "sha256"]).is_err());
-        assert!(Args::try_validated_from(["kiek", "-a", "sha512"]).is_err());
+            // SASL/* requires username
+            assert!(Args::try_validated_from(["kiek", "-a", "plain"]).await.is_err());
+            assert!(Args::try_validated_from(["kiek", "-a", "sha256"]).await.is_err());
+            assert!(Args::try_validated_from(["kiek", "-a", "sha512"]).await.is_err());
 
-        // MSK IAM does not require username
-        assert!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).is_ok());
-        assert!(Args::try_validated_from(["kiek", "-a", "iam"]).is_ok());
+            // MSK IAM does not require username
+            assert!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).await.is_ok());
+            assert!(Args::try_validated_from(["kiek", "-a", "iam"]).await.is_ok());
+        });
     }
 
     #[test]
     fn test_password_requires_username() {
-        assert!(Args::try_validated_from(["kiek", "--password", "bar"]).is_err());
-        assert!(Args::try_validated_from(["kiek", "--pw", "bar"]).is_err());
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            assert!(Args::try_validated_from(["kiek", "--password", "bar"]).await.is_err());
+            assert!(Args::try_validated_from(["kiek", "--pw", "bar"]).await.is_err());
 
-        assert!(Args::try_validated_from(["kiek", "--pw", "bar", "-u", "foo"]).is_ok());
-        assert!(Args::try_validated_from(["kiek", "--pw", "bar", "--username", "foo"]).is_ok());
+            assert!(Args::try_validated_from(["kiek", "--pw", "bar", "-u", "foo"]).await.is_ok());
+            assert!(Args::try_validated_from(["kiek", "--pw", "bar", "--username", "foo"]).await.is_ok());
+        });
     }
 
     #[test]
     fn test_just_one_password() {
-        assert!(Args::try_validated_from(["kiek", "-u", "foo", "--pw", "bar"]).is_ok());
-        assert!(Args::try_validated_from(["kiek", "-u", "foo:bar"]).is_ok());
-        assert!(Args::try_validated_from(["kiek", "-u", "foo:bar", "--pw", "bar"]).is_err());
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            assert!(Args::try_validated_from(["kiek", "-u", "foo", "--pw", "bar"]).await.is_ok());
+            assert!(Args::try_validated_from(["kiek", "-u", "foo:bar"]).await.is_ok());
+            assert!(Args::try_validated_from(["kiek", "-u", "foo:bar", "--pw", "bar"]).await.is_err());
+        });
     }
 
     #[test]
