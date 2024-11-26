@@ -22,6 +22,7 @@ use rdkafka::topic_partition_list::TopicPartitionList;
 use rdkafka::{Offset, Timestamp};
 use std::collections::HashMap;
 use std::time::Duration;
+use termion::clear;
 
 pub(crate) const DEFAULT_PORT: i32 = 9092;
 pub(crate) const DEFAULT_BROKER_STRING: &str = "127.0.0.1:9092";
@@ -221,7 +222,7 @@ fn prompt_topic_or_partition(metadata: &Metadata, given: Option<&TopicOrPartitio
         "Select a topic".to_string()
     };
 
-    feedback.clear();
+    println!("{}", clear::CurrentLine);
     let theme = feedback.highlighting.dialoguer_theme();
     let select = Select::with_theme(&*theme)
         .with_prompt(prompt)
@@ -272,7 +273,7 @@ fn prompt_partition(feedback: &Feedback, theme: Box<dyn Theme>, topic: &String, 
         .with_prompt("Select a partition")
         .items(&partitions)
         .default(0)
-        .max_length(13) // "all partitions" and first 12 partitions
+        .max_length(1 + 12) // "all partitions" and first 12 partitions
         .interact()
         .unwrap() as i32 - 1;
 

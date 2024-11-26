@@ -15,7 +15,7 @@ use simple_logger::SimpleLogger;
 use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::time::Duration;
-use crate::args::Args;
+use crate::args::{Args, Password};
 
 pub async fn run() -> Result<()> {
     let args = Args::validated().await;
@@ -43,7 +43,11 @@ async fn setup(args: Args) -> Result<()> {
 
     let feedback = args.feedback();
 
-    let _credentials = credentials(&args, &feedback)?;
+    let credentials = credentials(&args, &feedback)?;
+
+    let authentication = args.authentication(credentials);
+
+    info!("Authentication mechanism: {:?}", authentication);
 
     let bootstrap_servers = args.bootstrap_servers();
 
@@ -87,7 +91,7 @@ async fn setup(args: Args) -> Result<()> {
 /// If username is provided, password is required.
 /// If password is missing ask for it in interactive mode or fail.
 ///
-fn credentials(args: &Args, feedback: &Feedback) -> Result<Option<(String, String)>> {
+fn credentials(args: &Args, feedback: &Feedback) -> Result<Option<(String, Password)>> {
     match (args.username(), args.password()) {
         (Some(username), Some(password)) =>
             Ok(Some((username, password))), // credentials are passed
@@ -97,7 +101,7 @@ fn credentials(args: &Args, feedback: &Feedback) -> Result<Option<(String, Strin
                     .with_prompt(format!("Enter password for user {bold}{username}{bold:#}", bold = feedback.highlighting.bold))
                     .allow_empty_password(true)
                     .interact()?;
-            Ok(Some((username, password)))
+            Ok(Some((username, password.parse::<Password>()?)))
         }
         (Some(username), _) => {
             Err(KiekException::new(format!("Password is required for user {username}. Use {bold}--pw, --password{bold:#} or {bold}-u {username}:<PASSWORD>{bold:#}.", bold = feedback.highlighting.bold)))

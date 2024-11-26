@@ -215,8 +215,32 @@ impl Args {
         self.username.clone()?.0.into()
     }
 
-    pub fn password(&self) -> Option<String> {
-        self.username.clone()?.1.or(self.password.clone()).map(|p| p.plain().to_string())
+    pub fn password(&self) -> Option<Password> {
+        self.username.clone()?.1.or(self.password.clone())
+    }
+
+    ///
+    /// Returns the authentication mechanism based on the configuration:
+    /// - If mechanism is specified, returns it
+    /// - If username is set, returns SASL/PLAIN
+    /// - If profile, region or role_arn is set, returns MSK IAM
+    /// - Otherwise, no authentication is attempted
+    ///
+    pub fn authentication(&self, credentials: Option<(String, Password)>) -> Authentication {
+        let (username, password) = credentials.unwrap_or_else(|| ("".to_string(), Password("".to_string())));
+        match &self.authentication {
+            Some(AuthenticationType::Plain) => Authentication::SaslPlain(username, password),
+            Some(AuthenticationType::Sha256) => Authentication::SaslSha256(username, password),
+            Some(AuthenticationType::Sha512) => Authentication::SaslSha512(username, password),
+            Some(AuthenticationType::MskIam) => Authentication::MskIam(self.profile.clone(), self.region.clone(), self.role_arn.clone()),
+
+            None if self.username().is_some() => Authentication::SaslPlain(username, password),
+
+            None if self.profile.is_some() || self.region.is_some() || self.role_arn.is_some() =>
+                Authentication::MskIam(self.profile.clone(), self.region.clone(), self.role_arn.clone()),
+
+            _ => Authentication::None
+        }
     }
 
     ///
@@ -240,12 +264,13 @@ impl Args {
     }
 }
 
-enum Authentication {
+#[derive(Debug)]
+pub(crate) enum Authentication {
     None,
-    SaslPlain(String, Option<String>),
+    SaslPlain(String, Password),
+    SaslSha256(String, Password),
+    SaslSha512(String, Password),
     MskIam(Option<String>, Option<String>, Option<String>),
-    SaslSha256(String, Option<String>),
-    SaslSha512(String, Option<String>),
 }
 
 lazy_static! {
