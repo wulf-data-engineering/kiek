@@ -116,7 +116,7 @@ pub(crate) fn write_avro_value(f: &mut Formatter<'_>, value: &AvroValue, highlig
         AvroValue::TimeMicros(micros) => write_string_value(f, format!("{micros}µs"), highlighting),
         AvroValue::TimestampMillis(ts) => write_string_value(f, DateTime::from_timestamp_millis(*ts).unwrap().to_string(), highlighting),
         AvroValue::TimestampMicros(ts) => write_string_value(f, DateTime::from_timestamp_micros(*ts).unwrap().to_string(), highlighting),
-        AvroValue::Duration(duration) => write_string_value(f, format!("{:?}m{:?}d{:?}ms", duration.months(), duration.days(), duration.millis()), highlighting),
+        AvroValue::Duration(duration) => write_string_value(f, format!("{duration:?}"), highlighting),
         AvroValue::Uuid(uuid) => write_string_value(f, uuid.to_string(), highlighting),
     }
 }
@@ -186,8 +186,8 @@ lazy_static! {
 
 #[cfg(test)]
 mod tests {
+    use avro_rs::{Months, Days, Duration, Millis};
     use super::*;
-
     struct JsonFormatting {
         value: JsonValue,
         highlighting: Highlighting,
@@ -219,7 +219,6 @@ mod tests {
         ]
         ));
 
-
         let formatted = format!("{}", JsonFormatting { value: value.clone(), highlighting: Highlighting::plain() });
         assert_eq!(formatted, "{\"age\":25,\"city\":\"San Francisco\",\"name\":\"Jane Doe\"}");
 
@@ -246,5 +245,33 @@ mod tests {
         let last_reset_index = formatted.rfind("\u{001B}[0m").unwrap();
         let last_ansi_index = formatted.rfind("\u{001B}").unwrap();
         assert_eq!(last_reset_index, last_ansi_index);
+
+        let value = AvroValue::Date(4);
+        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        assert_eq!(formatted, "\"1970-01-05\"");
+
+        let value = AvroValue::TimeMillis(1234567890);
+        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        assert_eq!(formatted, "\"1234567890ms\"");
+
+        let value = AvroValue::TimeMicros(1234567890);
+        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        assert_eq!(formatted, "\"1234567890µs\"");
+
+        let value = AvroValue::TimestampMillis(1234567890);
+        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        assert_eq!(formatted, "\"1970-01-15 06:56:07.890 UTC\"");
+
+        let value = AvroValue::TimestampMicros(1234567890000);
+        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        assert_eq!(formatted, "\"1970-01-15 06:56:07.890 UTC\"");
+
+        let value = AvroValue::TimestampMicros(1234567890001);
+        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        assert_eq!(formatted, "\"1970-01-15 06:56:07.890001 UTC\"");
+
+        let value = AvroValue::Duration(Duration::new(Months::new(1), Days::new(2), Millis::new(3)));
+        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        assert_eq!(formatted, "\"Duration { months: Months(U32(1)), days: Days(U32(2)), millis: Millis(U32(3)) }\"");
     }
 }

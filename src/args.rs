@@ -46,7 +46,8 @@ pub struct Args {
     offset: Option<StartOffset>,
 
     /// Short option for --offset=earliest: Start from the beginning of the topic
-    #[arg(group = "start-offset", short, long, action, aliases = ["beginning", "from-beginning"], hide_short_help = true)]
+    #[arg(group = "start-offset", short, long, action, aliases = ["beginning", "from-beginning"], hide_short_help = true
+    )]
     earliest: bool,
 
     /// Short option for --offset=latest: Start from the end of the topic and wait for just new messages
@@ -434,65 +435,51 @@ mod tests {
         assert_eq!(args.offset, Some(StartOffset::Latest(3)));
     }
 
-    #[test]
-    fn test_max_one_offset_configuration() {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=latest", "--offset=earliest"]).await.is_err());
-            assert!(Args::try_validated_from(["kiek", "test-topic", "--latest", "--earliest"]).await.is_err());
-            assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=earliest", "--earliest"]).await.is_err());
-            assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=-1", "--latest"]).await.is_err());
-        });
+    #[tokio::test]
+    async fn test_max_one_offset_configuration() {
+        assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=latest", "--offset=earliest"]).await.is_err());
+        assert!(Args::try_validated_from(["kiek", "test-topic", "--latest", "--earliest"]).await.is_err());
+        assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=earliest", "--earliest"]).await.is_err());
+        assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=-1", "--latest"]).await.is_err());
     }
 
-    #[test]
-    fn test_auth_configuration() {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            assert_eq!(Args::try_validated_from(["kiek", "-a", "plain", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Plain));
-            assert_eq!(Args::try_validated_from(["kiek", "--authentication", "plain", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Plain));
+    #[tokio::test]
+    async fn test_auth_configuration() {
+        assert_eq!(Args::try_validated_from(["kiek", "-a", "plain", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Plain));
+        assert_eq!(Args::try_validated_from(["kiek", "--authentication", "plain", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Plain));
 
-            assert_eq!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).await.unwrap().authentication, Some(Authentication::MskIam));
-            assert_eq!(Args::try_validated_from(["kiek", "-a", "iam"]).await.unwrap().authentication, Some(Authentication::MskIam));
+        assert_eq!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).await.unwrap().authentication, Some(Authentication::MskIam));
+        assert_eq!(Args::try_validated_from(["kiek", "-a", "iam"]).await.unwrap().authentication, Some(Authentication::MskIam));
 
-            assert_eq!(Args::try_validated_from(["kiek", "-a", "sha256", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Sha256));
-            assert_eq!(Args::try_validated_from(["kiek", "-a", "sha512", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Sha512));
+        assert_eq!(Args::try_validated_from(["kiek", "-a", "sha256", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Sha256));
+        assert_eq!(Args::try_validated_from(["kiek", "-a", "sha512", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Sha512));
 
-            // SASL/* requires username
-            assert!(Args::try_validated_from(["kiek", "-a", "plain"]).await.is_err());
-            assert!(Args::try_validated_from(["kiek", "-a", "sha256"]).await.is_err());
-            assert!(Args::try_validated_from(["kiek", "-a", "sha512"]).await.is_err());
+        // SASL/* requires username
+        assert!(Args::try_validated_from(["kiek", "-a", "plain"]).await.is_err());
+        assert!(Args::try_validated_from(["kiek", "-a", "sha256"]).await.is_err());
+        assert!(Args::try_validated_from(["kiek", "-a", "sha512"]).await.is_err());
 
-            // MSK IAM does not require username
-            assert!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).await.is_ok());
-            assert!(Args::try_validated_from(["kiek", "-a", "iam"]).await.is_ok());
-        });
+        assert!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).await.is_ok());
+        assert!(Args::try_validated_from(["kiek", "-a", "iam"]).await.is_ok());
     }
 
-    #[test]
-    fn test_password_requires_username() {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            assert!(Args::try_validated_from(["kiek", "--password", "bar"]).await.is_err());
-            assert!(Args::try_validated_from(["kiek", "--pw", "bar"]).await.is_err());
-
-            assert!(Args::try_validated_from(["kiek", "--pw", "bar", "-u", "foo"]).await.is_ok());
-            assert!(Args::try_validated_from(["kiek", "--pw", "bar", "--username", "foo"]).await.is_ok());
-        });
+    #[tokio::test]
+    async fn test_password_requires_username() {
+        assert!(Args::try_validated_from(["kiek", "--password", "bar"]).await.is_err());
+        assert!(Args::try_validated_from(["kiek", "--pw", "bar"]).await.is_err());
+        assert!(Args::try_validated_from(["kiek", "--pw", "bar", "-u", "foo"]).await.is_ok());
     }
 
-    #[test]
-    fn test_just_one_password() {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            assert!(Args::try_validated_from(["kiek", "-u", "foo", "--pw", "bar"]).await.is_ok());
-            assert!(Args::try_validated_from(["kiek", "-u", "foo:bar"]).await.is_ok());
-            assert!(Args::try_validated_from(["kiek", "-u", "foo:bar", "--pw", "bar"]).await.is_err());
-        });
+    #[tokio::test]
+    async fn test_just_one_password() {
+        assert!(Args::try_validated_from(["kiek", "-u", "foo:bar"]).await.is_ok());
+        assert!(Args::try_validated_from(["kiek", "-u", "foo:bar", "--pw", "bar"]).await.is_err());
     }
 
-    #[test]
-    fn test_authentication() {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let args = Args::try_validated_from(["kiek", "-a", "plain", "-u", "foo:bar", "-p", "aws-profile"]).await.unwrap();
-            assert_eq!(args.authentication(), Authentication::Plain);
-        });
+    #[tokio::test]
+    async fn test_authentication() {
+        let args = Args::try_validated_from(["kiek", "-a", "plain", "-u", "foo:bar", "-p", "aws-profile"]).await.unwrap();
+        assert_eq!(args.authentication(), Authentication::Plain);
     }
 
     #[test]

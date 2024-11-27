@@ -35,6 +35,8 @@ impl KiekException {
     }
 
     fn user_friendly(fail: &str) -> String {
+        // Try to decompose the error message to the actual message
+        let fail = KAFKA_ERROR_REGEX.captures(fail).map_or_else(|| fail.to_string(), |c| c[1].to_string());
         if fail.contains("SASL authentication error") && fail.contains("Access denied") {
             "SASL authentication error: Access denied.".to_string()
         } else if fail.contains("Disconnected while requesting ApiVersion") {
@@ -42,8 +44,7 @@ impl KiekException {
         } else if fail.contains("Unsupported SASL mechanism: broker's supported mechanisms: OAUTHBEARER,AWS_MSK_IAM") {
             "The broker requires MSK IAM based authentication. Specify using --authentication=msk-iam.".to_string()
         } else {
-            // Try to decompose the error message to the "most" user-friendly message
-            KAFKA_ERROR_REGEX.captures(fail).map_or_else(|| fail.to_string(), |c| c[1].to_string())
+            fail
         }
     }
 }
@@ -67,3 +68,40 @@ impl std::fmt::Display for KiekException {
 }
 
 impl Error for KiekException {}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_user_friendly_error_messages() {
+        assert_eq!(
+            KiekException::user_friendly("FAIL [thrd:sasl_ssl://b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-ce]: sasl_ssl://b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.amazonaws.com:9198/bootstrap: SASL authentication error: [4a380ffc-1778-418a-9bb5-264f49c29bcb]: Access denied (after 395ms in state AUTH_REQ)://b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.amazonaws.com:9198/bootstrap: SASL PLAIN mechanism handshake failed: Broker: Unsupported SASL mechanism: broker's supported mechanisms: OAUTHBEARER,AWS_MSK_IAM (after 379ms in state AUTH_HANDSHAKE)"),
+            "SASL authentication error: Access denied.");
+
+        assert_eq!(
+            KiekException::user_friendly("FAIL [thrd:sasl_ssl://b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-ce]: sasl_ssl://b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.amazonaws.com:9198/bootstrap: SASL PLAIN mechanism handshake failed: Broker: Unsupported SASL mechanism: broker's supported mechanisms: OAUTHBEARER,AWS_MSK_IAM (after 379ms in state AUTH_HANDSHAKE)"),
+            "The broker requires MSK IAM based authentication. Specify using --authentication=msk-iam.");
+
+        assert_eq!(
+            KiekException::user_friendly("FAIL [thrd:b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.ama]: b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.amazonaws.com:9198/bootstrap: Disconnected while requesting ApiVersion: might be caused by incorrect security.protocol configuration (connecting to a SSL listener?) or broker version is < 0.10 (see api.version.request) (after 18ms in state APIVERSION_QUERY, 1 identical error(s) suppressed)"),
+            "Disconnected while requesting API version: Most likely the authentication mechanism is wrong and SSL is expected. Verify your -a, --authentication configuration.");
+
+        assert_eq!(
+            KiekException::user_friendly("[thrd:sasl_ssl://127.0.0.1:9092/bootstrap]: sasl_ssl://127.0.0.1:9092/bootstrap: SSL handshake failed: Disconnected: connecting to a PLAINTEXT broker listener? (after 2ms in state SSL_HANDSHAKE)"),
+            "SSL handshake failed: Disconnected: connecting to a PLAINTEXT broker listener?");
+
+        assert_eq!(
+            KiekException::user_friendly("[thrd:sasl_ssl://127.0.0.1:9092/bootstrap]: sasl_ssl://127.0.0.1:9092/bootstrap: kapott (after 2ms in state SSL_HANDSHAKE)"),
+            "kapott");
+    }
+
+    #[test]
+    fn test_write() {
+        assert_eq!(format!("{}", KiekException::new("foo")), "foo");
+        assert_eq!(format!("{}", KiekException::delayed("foo", &Arc::new(Mutex::new(None)))), "foo");
+        assert_eq!(format!("{}", KiekException::delayed("foo", &Arc::new(Mutex::new(Some("bar".to_string()))))), "bar");
+        assert_eq!(format!("{}", KiekException::delayed("foo", &Arc::new(Mutex::new(Some("[thrd:sasl_ssl://127.0.0.1:9092/bootstrap]: sasl_ssl://127.0.0.1:9092/bootstrap: baz (after 2ms in state SSL_HANDSHAKE)".to_string()))))), "baz");
+    }
+}

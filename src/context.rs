@@ -89,3 +89,39 @@ impl ClientContext for DefaultKiekContext {
         self.capturing_log(level, fac, log_message);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_capturing_log() {
+        let ctx = DefaultKiekContext::new();
+
+        assert_eq!(ctx.last_fail().lock().unwrap().clone(), None);
+
+        ctx.capturing_log(RDKafkaLogLevel::Info, "TEST", "This is a test message");
+        ctx.capturing_log(RDKafkaLogLevel::Warning, "TEST", "This is a warning message");
+        ctx.capturing_log(RDKafkaLogLevel::Error, "TEST", "This is an error message");
+        ctx.capturing_log(RDKafkaLogLevel::Debug, "TEST", "This is a debug message");
+        ctx.capturing_log(RDKafkaLogLevel::Notice, "TEST", "This is a notice message");
+
+        assert_eq!(ctx.last_fail().lock().unwrap().clone(), None);
+
+        ctx.capturing_log(RDKafkaLogLevel::Error, "FAIL", "broken");
+
+        assert_eq!(ctx.last_fail().lock().unwrap().clone(), Some("broken".to_string()));
+
+        ctx.capturing_log(RDKafkaLogLevel::Notice, "FAIL", "still broken");
+
+        assert_eq!(ctx.last_fail().lock().unwrap().clone(), Some("still broken".to_string()));
+
+        ctx.capturing_log(RDKafkaLogLevel::Info, "TEST", "This is a test message");
+        ctx.capturing_log(RDKafkaLogLevel::Warning, "TEST", "This is a warning message");
+        ctx.capturing_log(RDKafkaLogLevel::Error, "TEST", "This is an error message");
+        ctx.capturing_log(RDKafkaLogLevel::Debug, "TEST", "This is a debug message");
+        ctx.capturing_log(RDKafkaLogLevel::Notice, "TEST", "This is a notice message");
+
+        assert_eq!(ctx.last_fail().lock().unwrap().clone(), Some("still broken".to_string()));
+    }
+}

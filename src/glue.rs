@@ -38,6 +38,10 @@ pub fn analyze_glue_message(data: &[u8]) -> Result<GlueMessage> {
         return Err("Zlib compression not supported for now".into());
     }
 
+    if data.len() < 18 {
+        return Err("Message too short: expected header of 18 bytes: version, compression, UUID".into());
+    }
+
     let schema_id = Uuid::from_slice(&data[2..18])?;
 
     let payload = &data[18..];
@@ -117,3 +121,35 @@ impl GlueSchemaRegistryFacade {
         Ok(schema)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_analysis() {
+        assert!(analyze_glue_message("plain text".as_bytes()).is_err());
+        assert!(analyze_glue_message("{\"json\":42}".as_bytes()).is_err());
+        assert!(analyze_glue_message(&[42, 0]).err().unwrap().to_string().contains("Invalid header version"));
+        assert!(analyze_glue_message(&[3, 1]).err().unwrap().to_string().contains("Invalid compression type"));
+        assert!(analyze_glue_message(&[3, 5]).err().unwrap().to_string().contains("Zlib compression not supported for now"));
+        assert!(analyze_glue_message(&[3, 0, 2]).err().unwrap().to_string().contains("Message too short"));
+
+        let uuid = Uuid::new_v4();
+        let mut data = vec![3, 0];
+        data.extend(uuid.into_bytes());
+
+        let glue_message = analyze_glue_message(data.as_slice()).unwrap();
+        assert_eq!(glue_message.schema_id, uuid);
+        assert!(glue_message.payload.is_empty());
+
+        let some_payload: [u8; 4] = [1, 2, 3, 4];
+
+        data.extend(some_payload);
+
+        let glue_message = analyze_glue_message(data.as_slice()).unwrap();
+        assert_eq!(glue_message.schema_id, uuid);
+        assert_eq!(glue_message.payload, some_payload);
+    }
+}
+

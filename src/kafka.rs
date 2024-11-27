@@ -455,7 +455,7 @@ fn format_timestamp_millis(ms: i64, start_date: &DateTime<Local>, highlighting: 
 }
 
 /// Formats the bootstrap servers for the log output with ellipsis for more than one broker
-pub(crate) struct FormatBootstrapServers<'a>(pub(crate) &'a String);
+pub(crate) struct FormatBootstrapServers<'a>(pub(crate) &'a str);
 
 impl<'a> std::fmt::Display for FormatBootstrapServers<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

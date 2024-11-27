@@ -2,6 +2,7 @@ use crate::glue::{analyze_glue_message, decode_glue_message, GlueSchemaRegistryF
 use crate::highlight::{write_avro_value, write_json_value, write_null, Highlighting};
 use std::fmt::Display;
 
+#[derive(PartialEq, Debug)]
 pub enum Payload {
     Null,
     String(String),
@@ -63,3 +64,42 @@ impl<'a, 'b> Display for PayloadFormatting<'a, 'b> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::feedback::Feedback;
+    use aws_credential_types::provider::SharedCredentialsProvider;
+    use aws_credential_types::Credentials;
+    use aws_types::region::Region;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn test_parsing() {
+        let h = Highlighting::plain();
+        let f = Feedback::prepare(&h, true);
+        let credentials = Credentials::for_tests();
+        let credentials_provider = SharedCredentialsProvider::new(credentials);
+        let facade = GlueSchemaRegistryFacade::new(credentials_provider, Region::from_static("eu-central-1"), &f);
+
+        assert_eq!(parse_payload(None, &facade).await, Payload::Null);
+        assert_eq!(parse_payload(Some(&[]), &facade).await, Payload::String("".to_string()));
+        assert_eq!(parse_payload(Some("string".as_bytes()), &facade).await, Payload::String("string".to_string()));
+        assert_eq!(parse_payload(Some("\"string\"".as_bytes()), &facade).await, Payload::Json(serde_json::Value::String("string".into())));
+
+        let some_bytes = Uuid::new_v4().as_bytes().to_vec();
+        assert_eq!(parse_payload(Some(&some_bytes), &facade).await, Payload::Unknown(String::from_utf8_lossy(&some_bytes).to_string()));
+    }
+
+    #[test]
+    fn test_formatting() {
+        let h = Highlighting::plain();
+
+        assert_eq!(format!("{}", format_payload(&Payload::Null, &h)), "null");
+        assert_eq!(format!("{}", format_payload(&Payload::String("string".into()), &h)), "string");
+        assert_eq!(format!("{}", format_payload(&Payload::Json(serde_json::Value::String("string".into())), &h)), "\"string\"");
+        assert_eq!(format!("{}", format_payload(&Payload::Avro(avro_rs::types::Value::String("string".into())), &h)), "\"string\"");
+        assert_eq!(format!("{}", format_payload(&Payload::Unknown("string".into()), &h)), "string");
+    }
+}
+

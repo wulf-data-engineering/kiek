@@ -1,4 +1,6 @@
+use crate::args::{Args, Authentication, Password};
 use crate::aws::create_credentials_provider;
+use crate::context::KiekContext;
 use crate::exception::KiekException;
 use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
@@ -15,8 +17,6 @@ use simple_logger::SimpleLogger;
 use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::time::Duration;
-use crate::args::{Args, Authentication, Password};
-use crate::context::KiekContext;
 
 pub async fn run() -> Result<()> {
     let args = Args::validated().await;
@@ -198,7 +198,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 ///
 /// Verify that the broker is reachable.
 ///
-async fn verify_connection(bootstrap_servers: &String, highlighting: &Highlighting) -> Result<()> {
+async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting) -> Result<()> {
     let first_server = bootstrap_servers.split(',').next().unwrap();
     // Add default port if not set
     let first_server = if first_server.contains(':') {
@@ -247,3 +247,31 @@ async fn verify_connection(bootstrap_servers: &String, highlighting: &Highlighti
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn test_verify_connection() {
+        let h = Highlighting::plain();
+
+        assert!(verify_connection("foo", &h).await.is_err());
+        assert!(verify_connection("foo:xs", &h).await.is_err());
+        assert!(verify_connection("foo:123456", &h).await.is_err());
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h).await.is_ok());
+
+        drop(listener); // disconnect
+
+        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h).await.is_err());
+
+        assert!(verify_connection("www.google.de:443", &h).await.is_ok());
+    }
+}
+
