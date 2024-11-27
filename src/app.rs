@@ -63,11 +63,11 @@ async fn setup(args: Args) -> Result<()> {
 
     match authentication {
         Authentication::MskIam => {
-            let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), profile.clone(), region.clone(), &feedback).await?;
+            let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), profile.clone(), region.clone(), args.no_ssl, &feedback).await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
         _ => {
-            let consumer = kafka::create_consumer(&bootstrap_servers, authentication, credentials).await?;
+            let consumer = kafka::create_consumer(&bootstrap_servers, authentication, credentials, args.no_ssl).await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
     }

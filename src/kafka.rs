@@ -47,7 +47,7 @@ pub fn create_config<S: Into<String>>(bootstrap_servers: S) -> ClientConfig {
 /// Create a Kafka consumer to connect to a Kafka cluster without or with username/password SASL
 /// authentication.
 ///
-pub async fn create_consumer(bootstrap_servers: &String, authentication: Authentication, credentials: Option<(String, Password)>) -> Result<StreamConsumer<DefaultKiekContext>> {
+pub async fn create_consumer(bootstrap_servers: &String, authentication: Authentication, credentials: Option<(String, Password)>, no_ssl: bool) -> Result<StreamConsumer<DefaultKiekContext>> {
     let mut client_config = create_config(bootstrap_servers);
 
     if authentication != Authentication::None {
@@ -58,10 +58,13 @@ pub async fn create_consumer(bootstrap_servers: &String, authentication: Authent
             _ => unreachable!()
         };
 
-        client_config.set("security.protocol", "SASL_SSL");
-        client_config.set("sasl.mechanism", mechanism);
+        if !no_ssl {
+            client_config.set("security.protocol", "SASL_SSL");
+            info!("Using SASL_SSL as security protocol.");
+        }
 
-        info!("Using SASL_SSL as security protocol and {mechanism} as SASL mechanism.");
+        client_config.set("sasl.mechanism", mechanism);
+        info!("Using {mechanism} as SASL mechanism.");
 
         let (username, password) = credentials.ok_or(KiekException::new("No credentials provided for SASL authentication."))?;
         client_config.set("sasl.username", &username);
@@ -79,9 +82,12 @@ pub async fn create_consumer(bootstrap_servers: &String, authentication: Authent
 ///
 /// Create a Kafka consumer to connect to an MSK cluster with IAM authentication.
 ///
-pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provider: SharedCredentialsProvider, profile: String, region: Region, feedback: &Feedback) -> Result<StreamConsumer<IamContext>> {
+pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provider: SharedCredentialsProvider, profile: String, region: Region, no_ssl: bool, feedback: &Feedback) -> Result<StreamConsumer<IamContext>> {
     let mut client_config = create_config(bootstrap_servers);
-    client_config.set("security.protocol", "SASL_SSL");
+    if !no_ssl {
+        client_config.set("security.protocol", "SASL_SSL");
+        info!("Using SASL_SSL as security protocol.");
+    }
     client_config.set("sasl.mechanism", "OAUTHBEARER");
 
     let context = IamContext::new(credentials_provider, profile, region, feedback);

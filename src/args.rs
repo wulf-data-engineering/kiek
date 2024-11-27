@@ -45,6 +45,14 @@ pub struct Args {
     #[arg(group = "start-offset", short, long, value_name = "earliest|latest|-n")]
     offset: Option<StartOffset>,
 
+    /// Short option for --offset=earliest: Start from the beginning of the topic
+    #[arg(group = "start-offset", short, long, action, aliases = ["beginning", "from-beginning"], hide_short_help = true)]
+    earliest: bool,
+
+    /// Short option for --offset=latest: Start from the end of the topic and wait for just new messages
+    #[arg(group = "start-offset", short, long, action, hide_short_help = true)]
+    latest: bool,
+
     /// Optional key to search scanning just the partition with the key
     ///
     /// If set, only messages with the given key are printed.
@@ -56,15 +64,15 @@ pub struct Args {
 
     /// Specifies the authentication mechanism
     ///
-    /// If omitted and username is set, assumes SASL/PLAIN authentication.
+    /// If omitted and -u, --username is set, assumes SASL/PLAIN authentication.
     /// If omitted and AWS related options are set, assumes MSK IAM authentication.
     /// Otherwise, no authentication is attempted.
     #[arg(short, long, aliases = ["auth"], value_name = "plain|msk-iam|...")]
     authentication: Option<Authentication>,
 
-    /// Username for SASL/PLAIN authentication
+    /// Username for SASL authentication
     ///
-    /// If set but no authentication mechanism is specified, assumes SASL/PLAIN authentication.
+    /// If set but no authentication mechanism is specified, assumes SASL authentication.
     /// Optionally takes the password as well, separated by a colon.
     /// If no password is provided, kiek will ask for it.
     #[arg(
@@ -75,9 +83,9 @@ pub struct Args {
         value_name = "USER[:PASSWORD]")]
     username: Option<Username>,
 
-    /// Password for SASL/PLAIN authentication
+    /// Password for SASL authentication
     ///
-    /// If no password is provided, kiek will ask for it.
+    /// If a username is set but no password provided, kiek will ask for it.
     #[arg(long, aliases = ["pw"], requires = "username")]
     password: Option<Password>,
 
@@ -105,24 +113,12 @@ pub struct Args {
     #[arg(long)]
     pub role_arn: Option<String>,
 
-    /// Short option for --offset=earliest
-    ///
-    /// Start from the beginning of the topic
-    #[arg(group = "start-offset", short, long, action, aliases = ["beginning", "from-beginning"])]
-    earliest: bool,
-
-    /// Short option for --offset=latest
-    ///
-    /// Start from the end of the topic and wait for just new messages
-    #[arg(group = "start-offset", short, long, action)]
-    latest: bool,
-
     /// Deactivates syntax highlighting
     ///
     /// When running in a terminal kiek uses syntax highlighting for better readability.
     /// This option deactivates it if the terminal does not support colors.
     /// Piping the output to a file or another program automatically deactivates colors.
-    #[arg(long, action, aliases = ["plain"])]
+    #[arg(long, action, aliases = ["plain"], hide_short_help = true)]
     no_colors: bool,
 
     /// Omit everything but the Kafka messages
@@ -131,12 +127,15 @@ pub struct Args {
     /// Dialogs like asking for a topic name or schema registry URL are replaced with fatal errors.
     /// Piping the output to a file or another program is automatically silent.
     ///
-    #[arg(group = "verbosity", short, long, action)]
+    #[arg(group = "verbosity", short, long, action, hide_short_help = true)]
     pub silent: bool,
 
     /// Activates logging on stdout
-    #[arg(group = "verbosity", short, long, action)]
+    #[arg(group = "verbosity", short, long, action, hide_short_help = true)]
     pub verbose: bool,
+
+    #[arg(long, action, hide = true)]
+    pub no_ssl: bool,
 }
 
 impl Args {
