@@ -11,7 +11,10 @@ pub enum Payload {
     Unknown(String),
 }
 
-pub async fn parse_payload(payload: Option<&[u8]>, glue_schema_registry_facade: &GlueSchemaRegistryFacade) -> Payload {
+pub async fn parse_payload(
+    payload: Option<&[u8]>,
+    glue_schema_registry_facade: &GlueSchemaRegistryFacade,
+) -> Payload {
     match payload {
         None => Payload::Null,
         Some(payload) => {
@@ -24,7 +27,10 @@ pub async fn parse_payload(payload: Option<&[u8]>, glue_schema_registry_facade: 
     }
 }
 
-async fn parse_payload_bytes(payload: &[u8], glue_schema_registry_facade: &GlueSchemaRegistryFacade) -> Payload {
+async fn parse_payload_bytes(
+    payload: &[u8],
+    glue_schema_registry_facade: &GlueSchemaRegistryFacade,
+) -> Payload {
     if let Ok(string) = std::str::from_utf8(payload) {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(string) {
             Payload::Json(value)
@@ -44,8 +50,14 @@ async fn parse_payload_bytes(payload: &[u8], glue_schema_registry_facade: &GlueS
     }
 }
 
-pub fn format_payload<'a, 'b>(payload: &'a Payload, highlighting: &'b Highlighting) -> PayloadFormatting<'a, 'b> {
-    PayloadFormatting { payload, highlighting }
+pub fn format_payload<'a, 'b>(
+    payload: &'a Payload,
+    highlighting: &'b Highlighting,
+) -> PayloadFormatting<'a, 'b> {
+    PayloadFormatting {
+        payload,
+        highlighting,
+    }
 }
 
 pub(crate) struct PayloadFormatting<'a, 'b> {
@@ -60,7 +72,11 @@ impl<'a, 'b> Display for PayloadFormatting<'a, 'b> {
             Payload::String(string) => write!(f, "{string}"),
             Payload::Json(value) => write_json_value(f, value, self.highlighting),
             Payload::Avro(value) => write_avro_value(f, value, self.highlighting),
-            Payload::Unknown(string) => write!(f, "{style}{string}{style:#}", style = self.highlighting.dimmed),
+            Payload::Unknown(string) => write!(
+                f,
+                "{style}{string}{style:#}",
+                style = self.highlighting.dimmed
+            ),
         }
     }
 }
@@ -80,15 +96,31 @@ mod tests {
         let f = Feedback::prepare(&h, true);
         let credentials = Credentials::for_tests();
         let credentials_provider = SharedCredentialsProvider::new(credentials);
-        let facade = GlueSchemaRegistryFacade::new(credentials_provider, Region::from_static("eu-central-1"), &f);
+        let facade = GlueSchemaRegistryFacade::new(
+            credentials_provider,
+            Region::from_static("eu-central-1"),
+            &f,
+        );
 
         assert_eq!(parse_payload(None, &facade).await, Payload::Null);
-        assert_eq!(parse_payload(Some(&[]), &facade).await, Payload::String("".to_string()));
-        assert_eq!(parse_payload(Some("string".as_bytes()), &facade).await, Payload::String("string".to_string()));
-        assert_eq!(parse_payload(Some("\"string\"".as_bytes()), &facade).await, Payload::Json(serde_json::Value::String("string".into())));
+        assert_eq!(
+            parse_payload(Some(&[]), &facade).await,
+            Payload::String("".to_string())
+        );
+        assert_eq!(
+            parse_payload(Some("string".as_bytes()), &facade).await,
+            Payload::String("string".to_string())
+        );
+        assert_eq!(
+            parse_payload(Some("\"string\"".as_bytes()), &facade).await,
+            Payload::Json(serde_json::Value::String("string".into()))
+        );
 
         let some_bytes = Uuid::new_v4().as_bytes().to_vec();
-        assert_eq!(parse_payload(Some(&some_bytes), &facade).await, Payload::Unknown(String::from_utf8_lossy(&some_bytes).to_string()));
+        assert_eq!(
+            parse_payload(Some(&some_bytes), &facade).await,
+            Payload::Unknown(String::from_utf8_lossy(&some_bytes).to_string())
+        );
     }
 
     #[test]
@@ -96,10 +128,33 @@ mod tests {
         let h = Highlighting::plain();
 
         assert_eq!(format!("{}", format_payload(&Payload::Null, &h)), "null");
-        assert_eq!(format!("{}", format_payload(&Payload::String("string".into()), &h)), "string");
-        assert_eq!(format!("{}", format_payload(&Payload::Json(serde_json::Value::String("string".into())), &h)), "\"string\"");
-        assert_eq!(format!("{}", format_payload(&Payload::Avro(avro_rs::types::Value::String("string".into())), &h)), "\"string\"");
-        assert_eq!(format!("{}", format_payload(&Payload::Unknown("string".into()), &h)), "string");
+        assert_eq!(
+            format!("{}", format_payload(&Payload::String("string".into()), &h)),
+            "string"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                format_payload(
+                    &Payload::Json(serde_json::Value::String("string".into())),
+                    &h
+                )
+            ),
+            "\"string\""
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                format_payload(
+                    &Payload::Avro(avro_rs::types::Value::String("string".into())),
+                    &h
+                )
+            ),
+            "\"string\""
+        );
+        assert_eq!(
+            format!("{}", format_payload(&Payload::Unknown("string".into()), &h)),
+            "string"
+        );
     }
 }
-

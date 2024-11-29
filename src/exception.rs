@@ -1,7 +1,7 @@
-use std::error::Error;
-use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 use regex::Regex;
+use std::error::Error;
+use std::sync::{Arc, Mutex};
 
 ///
 /// `KiekException` is a custom error type that can be used to wrap any error message
@@ -18,16 +18,23 @@ pub(crate) struct KiekException {
 }
 
 lazy_static! {
-    static ref KAFKA_ERROR_REGEX: Regex = Regex::new(r"^\[[^\]]+\]: [^ ]+: (.+) \(after .+\)$").unwrap();
+    static ref KAFKA_ERROR_REGEX: Regex =
+        Regex::new(r"^\[[^\]]+\]: [^ ]+: (.+) \(after .+\)$").unwrap();
 }
 
 impl KiekException {
     pub fn new<S: Into<String>>(message: S) -> Box<Self> {
-        Box::new(Self { message: message.into(), delayed: Arc::new(Mutex::new(None)) })
+        Box::new(Self {
+            message: message.into(),
+            delayed: Arc::new(Mutex::new(None)),
+        })
     }
 
     pub fn delayed<S: Into<String>>(message: S, delayed: &Arc<Mutex<Option<String>>>) -> Box<Self> {
-        Box::new(Self { message: message.into(), delayed: delayed.clone() })
+        Box::new(Self {
+            message: message.into(),
+            delayed: delayed.clone(),
+        })
     }
 
     pub fn from<E: Error>(e: E) -> Box<Self> {
@@ -36,12 +43,16 @@ impl KiekException {
 
     fn user_friendly(fail: &str) -> String {
         // Try to decompose the error message to the actual message
-        let fail = KAFKA_ERROR_REGEX.captures(fail).map_or_else(|| fail.to_string(), |c| c[1].to_string());
+        let fail = KAFKA_ERROR_REGEX
+            .captures(fail)
+            .map_or_else(|| fail.to_string(), |c| c[1].to_string());
         if fail.contains("SASL authentication error") && fail.contains("Access denied") {
             "SASL authentication error: Access denied.".to_string()
         } else if fail.contains("Disconnected while requesting ApiVersion") {
             "Disconnected while requesting API version: Most likely the authentication mechanism is wrong and SSL is expected. Verify your -a, --authentication configuration.".to_string()
-        } else if fail.contains("Unsupported SASL mechanism: broker's supported mechanisms: OAUTHBEARER,AWS_MSK_IAM") {
+        } else if fail.contains(
+            "Unsupported SASL mechanism: broker's supported mechanisms: OAUTHBEARER,AWS_MSK_IAM",
+        ) {
             "The broker requires MSK IAM based authentication. Specify using --authentication=msk-iam.".to_string()
         } else {
             fail
@@ -62,13 +73,12 @@ impl std::fmt::Display for KiekException {
                     write!(f, "{}", self.message)
                 }
             }
-            Err(_) => write!(f, "{}", self.message)
+            Err(_) => write!(f, "{}", self.message),
         }
     }
 }
 
 impl Error for KiekException {}
-
 
 #[cfg(test)]
 mod tests {
@@ -100,8 +110,20 @@ mod tests {
     #[test]
     fn test_write() {
         assert_eq!(format!("{}", KiekException::new("foo")), "foo");
-        assert_eq!(format!("{}", KiekException::delayed("foo", &Arc::new(Mutex::new(None)))), "foo");
-        assert_eq!(format!("{}", KiekException::delayed("foo", &Arc::new(Mutex::new(Some("bar".to_string()))))), "bar");
+        assert_eq!(
+            format!(
+                "{}",
+                KiekException::delayed("foo", &Arc::new(Mutex::new(None)))
+            ),
+            "foo"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                KiekException::delayed("foo", &Arc::new(Mutex::new(Some("bar".to_string()))))
+            ),
+            "bar"
+        );
         assert_eq!(format!("{}", KiekException::delayed("foo", &Arc::new(Mutex::new(Some("[thrd:sasl_ssl://127.0.0.1:9092/bootstrap]: sasl_ssl://127.0.0.1:9092/bootstrap: baz (after 2ms in state SSL_HANDSHAKE)".to_string()))))), "baz");
     }
 }

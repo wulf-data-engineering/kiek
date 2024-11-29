@@ -1,13 +1,13 @@
+use crate::feedback::Feedback;
+use crate::Result;
 use avro_rs::Schema;
-use aws_sdk_glue::Client;
 use aws_sdk_glue::config::BehaviorVersion;
+use aws_sdk_glue::Client;
 use aws_sdk_sts::config::SharedCredentialsProvider;
 use aws_types::region::Region;
 use log::{debug, info};
 use tokio::sync::Mutex;
-use crate::Result;
 use uuid::Uuid;
-use crate::feedback::Feedback;
 
 ///
 /// Try to analyze an AVRO encoded message from the Glue Schema Registry.
@@ -39,17 +39,16 @@ pub fn analyze_glue_message(data: &[u8]) -> Result<GlueMessage> {
     }
 
     if data.len() < 18 {
-        return Err("Message too short: expected header of 18 bytes: version, compression, UUID".into());
+        return Err(
+            "Message too short: expected header of 18 bytes: version, compression, UUID".into(),
+        );
     }
 
     let schema_id = Uuid::from_slice(&data[2..18])?;
 
     let payload = &data[18..];
 
-    Ok(GlueMessage {
-        schema_id,
-        payload,
-    })
+    Ok(GlueMessage { schema_id, payload })
 }
 
 pub struct GlueMessage<'a> {
@@ -60,9 +59,15 @@ pub struct GlueMessage<'a> {
 ///
 /// Tries to read an already analyzed AVRO encoded message from the Glue Schema Registry.
 ///
-pub async fn decode_glue_message<'a>(message: GlueMessage<'a>, glue_schema_registry_facade: &GlueSchemaRegistryFacade) -> Result<avro_rs::types::Value> {
-    let schema = glue_schema_registry_facade.get_schema(&message.schema_id).await?;
-    let value = avro_rs::from_avro_datum(&schema, &mut std::io::Cursor::new(message.payload), None)?;
+pub async fn decode_glue_message<'a>(
+    message: GlueMessage<'a>,
+    glue_schema_registry_facade: &GlueSchemaRegistryFacade,
+) -> Result<avro_rs::types::Value> {
+    let schema = glue_schema_registry_facade
+        .get_schema(&message.schema_id)
+        .await?;
+    let value =
+        avro_rs::from_avro_datum(&schema, &mut std::io::Cursor::new(message.payload), None)?;
     Ok(value)
 }
 
@@ -76,13 +81,19 @@ pub struct GlueSchemaRegistryFacade {
 }
 
 impl GlueSchemaRegistryFacade {
-    pub fn new(credentials_provider: SharedCredentialsProvider, region: Region, feedback: &Feedback) -> Self {
+    pub fn new(
+        credentials_provider: SharedCredentialsProvider,
+        region: Region,
+        feedback: &Feedback,
+    ) -> Self {
         let feedback = feedback.clone();
-        let client = Client::from_conf(aws_sdk_glue::Config::builder()
-            .behavior_version(BehaviorVersion::latest())
-            .region(region)
-            .credentials_provider(credentials_provider)
-            .build());
+        let client = Client::from_conf(
+            aws_sdk_glue::Config::builder()
+                .behavior_version(BehaviorVersion::latest())
+                .region(region)
+                .credentials_provider(credentials_provider)
+                .build(),
+        );
 
         Self {
             client,
@@ -99,18 +110,23 @@ impl GlueSchemaRegistryFacade {
             return Ok(schema.clone());
         }
 
-        self.feedback.info("Loading", format!("schema version {}", schema_id));
+        self.feedback
+            .info("Loading", format!("schema version {}", schema_id));
 
         info!("Loading schema version {}.", schema_id);
 
-        let schema_version_output = self.client
+        let schema_version_output = self
+            .client
             .get_schema_version()
             .schema_version_id(schema_id.to_string())
-            .send().await?;
+            .send()
+            .await?;
 
         info!("Parsing schema version {}.", schema_id);
 
-        let schema_definition = schema_version_output.schema_definition.ok_or("Schema definition not found")?;
+        let schema_definition = schema_version_output
+            .schema_definition
+            .ok_or("Schema definition not found")?;
 
         let schema = Schema::parse_str(&schema_definition)?;
 
@@ -130,10 +146,26 @@ mod tests {
     fn test_analysis() {
         assert!(analyze_glue_message("plain text".as_bytes()).is_err());
         assert!(analyze_glue_message("{\"json\":42}".as_bytes()).is_err());
-        assert!(analyze_glue_message(&[42, 0]).err().unwrap().to_string().contains("Invalid header version"));
-        assert!(analyze_glue_message(&[3, 1]).err().unwrap().to_string().contains("Invalid compression type"));
-        assert!(analyze_glue_message(&[3, 5]).err().unwrap().to_string().contains("Zlib compression not supported for now"));
-        assert!(analyze_glue_message(&[3, 0, 2]).err().unwrap().to_string().contains("Message too short"));
+        assert!(analyze_glue_message(&[42, 0])
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Invalid header version"));
+        assert!(analyze_glue_message(&[3, 1])
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Invalid compression type"));
+        assert!(analyze_glue_message(&[3, 5])
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Zlib compression not supported for now"));
+        assert!(analyze_glue_message(&[3, 0, 2])
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Message too short"));
 
         let uuid = Uuid::new_v4();
         let mut data = vec![3, 0];
@@ -152,4 +184,3 @@ mod tests {
         assert_eq!(glue_message.payload, some_payload);
     }
 }
-

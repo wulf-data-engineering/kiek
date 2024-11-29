@@ -25,7 +25,6 @@ pub(crate) trait KiekContext: ConsumerContext {
     /// user-friendly feedback.
     ///
     fn capturing_log(&self, level: RDKafkaLogLevel, fac: &str, log_message: &str) {
-
         if fac == "FAIL" {
             match self.last_fail().lock() {
                 Ok(mut last_fail) => {
@@ -47,8 +46,7 @@ pub(crate) trait KiekContext: ConsumerContext {
             RDKafkaLogLevel::Warning => {
                 warn!("{fac} {log_message}")
             }
-            RDKafkaLogLevel::Notice
-            | RDKafkaLogLevel::Info => {
+            RDKafkaLogLevel::Notice | RDKafkaLogLevel::Info => {
                 info!("{fac} {log_message}")
             }
             RDKafkaLogLevel::Debug => {
@@ -68,7 +66,9 @@ pub(crate) struct DefaultKiekContext {
 
 impl DefaultKiekContext {
     pub(crate) fn new() -> Self {
-        Self { last_fail: Arc::new(Mutex::new(None)) }
+        Self {
+            last_fail: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
@@ -101,7 +101,11 @@ mod tests {
         assert_eq!(ctx.last_fail().lock().unwrap().clone(), None);
 
         ctx.capturing_log(RDKafkaLogLevel::Info, "TEST", "This is a test message");
-        ctx.capturing_log(RDKafkaLogLevel::Warning, "TEST", "This is a warning message");
+        ctx.capturing_log(
+            RDKafkaLogLevel::Warning,
+            "TEST",
+            "This is a warning message",
+        );
         ctx.capturing_log(RDKafkaLogLevel::Error, "TEST", "This is an error message");
         ctx.capturing_log(RDKafkaLogLevel::Debug, "TEST", "This is a debug message");
         ctx.capturing_log(RDKafkaLogLevel::Notice, "TEST", "This is a notice message");
@@ -110,18 +114,31 @@ mod tests {
 
         ctx.capturing_log(RDKafkaLogLevel::Error, "FAIL", "broken");
 
-        assert_eq!(ctx.last_fail().lock().unwrap().clone(), Some("broken".to_string()));
+        assert_eq!(
+            ctx.last_fail().lock().unwrap().clone(),
+            Some("broken".to_string())
+        );
 
         ctx.capturing_log(RDKafkaLogLevel::Notice, "FAIL", "still broken");
 
-        assert_eq!(ctx.last_fail().lock().unwrap().clone(), Some("still broken".to_string()));
+        assert_eq!(
+            ctx.last_fail().lock().unwrap().clone(),
+            Some("still broken".to_string())
+        );
 
         ctx.capturing_log(RDKafkaLogLevel::Info, "TEST", "This is a test message");
-        ctx.capturing_log(RDKafkaLogLevel::Warning, "TEST", "This is a warning message");
+        ctx.capturing_log(
+            RDKafkaLogLevel::Warning,
+            "TEST",
+            "This is a warning message",
+        );
         ctx.capturing_log(RDKafkaLogLevel::Error, "TEST", "This is an error message");
         ctx.capturing_log(RDKafkaLogLevel::Debug, "TEST", "This is a debug message");
         ctx.capturing_log(RDKafkaLogLevel::Notice, "TEST", "This is a notice message");
 
-        assert_eq!(ctx.last_fail().lock().unwrap().clone(), Some("still broken".to_string()));
+        assert_eq!(
+            ctx.last_fail().lock().unwrap().clone(),
+            Some("still broken".to_string())
+        );
     }
 }

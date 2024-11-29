@@ -152,7 +152,7 @@ impl Args {
     #[cfg(test)]
     async fn try_validated_from<I, T>(itr: I) -> Result<Self>
     where
-        I: IntoIterator<Item=T>,
+        I: IntoIterator<Item = T>,
         T: Into<std::ffi::OsString> + Clone,
     {
         let args = Args::try_parse_from(itr)?;
@@ -163,7 +163,9 @@ impl Args {
     async fn validate(&self) -> Result<()> {
         match &self.username {
             Some(Username(_, Some(_))) if self.password.is_some() => {
-                return Err(KiekException::new("Use either --password or --username with password."));
+                return Err(KiekException::new(
+                    "Use either --password or --username with password.",
+                ));
             }
             Some(Username(_, None)) if self.password.is_none() && self.profile.is_some() => {
                 let profile = self.profile.clone().unwrap();
@@ -203,7 +205,9 @@ impl Args {
     }
 
     pub fn bootstrap_servers(&self) -> String {
-        self.bootstrap_servers.clone().unwrap_or(DEFAULT_BROKER_STRING.to_string())
+        self.bootstrap_servers
+            .clone()
+            .unwrap_or(DEFAULT_BROKER_STRING.to_string())
     }
 
     pub fn username(&self) -> Option<String> {
@@ -248,7 +252,7 @@ impl Args {
             match &self.offset {
                 Some(offset) => offset.clone(),
                 None if is_local(&self.bootstrap_servers()) => StartOffset::Earliest,
-                None => StartOffset::Latest(0)
+                None => StartOffset::Latest(0),
             }
         }
     }
@@ -271,7 +275,7 @@ impl FromStr for TopicOrPartition {
                 let partition = captures.get(2).unwrap().as_str().parse().unwrap();
                 Ok(TopicOrPartition::TopicPartition(topic, partition))
             }
-            None => Ok(TopicOrPartition::Topic(string.to_string()))
+            None => Ok(TopicOrPartition::Topic(string.to_string())),
         }
     }
 }
@@ -330,7 +334,9 @@ impl FromStr for Username {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         if let Some(colon) = s.find(':') {
             let username = s[..colon].to_string();
-            let password = s[colon + 1..].parse().map_err(|_| "Could not parse password.")?;
+            let password = s[colon + 1..]
+                .parse()
+                .map_err(|_| "Could not parse password.")?;
             Ok(Username(username, Some(password)))
         } else {
             Ok(Username(s.to_string(), None))
@@ -377,8 +383,9 @@ impl FromStr for Password {
 /// Check if the given bootstrap servers are local
 ///
 fn is_local(bootstrap_servers: &str) -> bool {
-    bootstrap_servers.split(',').all(|server| {
-        match server.split(':').next() {
+    bootstrap_servers
+        .split(',')
+        .all(|server| match server.split(':').next() {
             None => false,
             Some(host) => {
                 if host == "localhost" {
@@ -386,12 +393,11 @@ fn is_local(bootstrap_servers: &str) -> bool {
                 } else {
                     match IpAddr::from_str(host) {
                         Ok(ip) => ip.is_loopback(),
-                        Err(_) => false
+                        Err(_) => false,
                     }
                 }
             }
-        }
-    })
+        })
 }
 
 // Test the arg parser
@@ -401,8 +407,16 @@ mod tests {
 
     #[test]
     fn test_args_parser() {
-        let args = Args::parse_from(["kiek", "test-topic", "--bootstrap-servers", "localhost:9092"]);
-        assert_eq!(args.topic_or_partition, Some(TopicOrPartition::Topic("test-topic".to_string())));
+        let args = Args::parse_from([
+            "kiek",
+            "test-topic",
+            "--bootstrap-servers",
+            "localhost:9092",
+        ]);
+        assert_eq!(
+            args.topic_or_partition,
+            Some(TopicOrPartition::Topic("test-topic".to_string()))
+        );
         assert_eq!(args.bootstrap_servers, Some("localhost:9092".to_string()));
         assert_eq!(args.key, None);
         assert_eq!(args.authentication, None);
@@ -414,8 +428,25 @@ mod tests {
         assert!(!args.verbose);
         assert_eq!(args.offset, None);
 
-        let args = Args::parse_from(["kiek", "test-topic", "--bootstrap-servers", "localhost:9092", "--profile", "test-profile", "--region", "us-west-1", "--verbose", "--offset", "earliest", "--key", "test-key"]);
-        assert_eq!(args.topic_or_partition, Some(TopicOrPartition::Topic("test-topic".to_string())));
+        let args = Args::parse_from([
+            "kiek",
+            "test-topic",
+            "--bootstrap-servers",
+            "localhost:9092",
+            "--profile",
+            "test-profile",
+            "--region",
+            "us-west-1",
+            "--verbose",
+            "--offset",
+            "earliest",
+            "--key",
+            "test-key",
+        ]);
+        assert_eq!(
+            args.topic_or_partition,
+            Some(TopicOrPartition::Topic("test-topic".to_string()))
+        );
         assert_eq!(args.bootstrap_servers, Some("localhost:9092".to_string()));
         assert_eq!(args.key, Some("test-key".to_string()));
         assert_eq!(args.profile, Some("test-profile".to_string()));
@@ -424,85 +455,226 @@ mod tests {
         assert!(args.verbose);
         assert_eq!(args.offset, Some(StartOffset::Earliest));
 
-        let args = Args::parse_from(["kiek", "test-topic-1", "--bootstrap-servers", "localhost:9092", "--profile", "test-profile", "--region", "us-west-1", "--role-arn", "arn:aws:iam::123456789012:role/test-role", "--offset=-3", "-k", "test-key"]);
-        assert_eq!(args.topic_or_partition, Some(TopicOrPartition::TopicPartition("test-topic".to_string(), 1)));
+        let args = Args::parse_from([
+            "kiek",
+            "test-topic-1",
+            "--bootstrap-servers",
+            "localhost:9092",
+            "--profile",
+            "test-profile",
+            "--region",
+            "us-west-1",
+            "--role-arn",
+            "arn:aws:iam::123456789012:role/test-role",
+            "--offset=-3",
+            "-k",
+            "test-key",
+        ]);
+        assert_eq!(
+            args.topic_or_partition,
+            Some(TopicOrPartition::TopicPartition(
+                "test-topic".to_string(),
+                1
+            ))
+        );
         assert_eq!(args.bootstrap_servers, Some("localhost:9092".to_string()));
         assert_eq!(args.key, Some("test-key".to_string()));
         assert_eq!(args.profile, Some("test-profile".to_string()));
         assert_eq!(args.region, Some("us-west-1".to_string()));
-        assert_eq!(args.role_arn, Some("arn:aws:iam::123456789012:role/test-role".to_string()));
+        assert_eq!(
+            args.role_arn,
+            Some("arn:aws:iam::123456789012:role/test-role".to_string())
+        );
         assert!(!args.verbose);
         assert_eq!(args.offset, Some(StartOffset::Latest(3)));
     }
 
     #[tokio::test]
     async fn test_max_one_offset_configuration() {
-        assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=latest", "--offset=earliest"]).await.is_err());
-        assert!(Args::try_validated_from(["kiek", "test-topic", "--latest", "--earliest"]).await.is_err());
-        assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=earliest", "--earliest"]).await.is_err());
-        assert!(Args::try_validated_from(["kiek", "test-topic", "--offset=-1", "--latest"]).await.is_err());
+        assert!(Args::try_validated_from([
+            "kiek",
+            "test-topic",
+            "--offset=latest",
+            "--offset=earliest"
+        ])
+        .await
+        .is_err());
+        assert!(
+            Args::try_validated_from(["kiek", "test-topic", "--latest", "--earliest"])
+                .await
+                .is_err()
+        );
+        assert!(Args::try_validated_from([
+            "kiek",
+            "test-topic",
+            "--offset=earliest",
+            "--earliest"
+        ])
+        .await
+        .is_err());
+        assert!(
+            Args::try_validated_from(["kiek", "test-topic", "--offset=-1", "--latest"])
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn test_auth_configuration() {
-        assert_eq!(Args::try_validated_from(["kiek", "-a", "plain", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Plain));
-        assert_eq!(Args::try_validated_from(["kiek", "--authentication", "plain", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Plain));
+        assert_eq!(
+            Args::try_validated_from(["kiek", "-a", "plain", "-u", "required"])
+                .await
+                .unwrap()
+                .authentication,
+            Some(Authentication::Plain)
+        );
+        assert_eq!(
+            Args::try_validated_from(["kiek", "--authentication", "plain", "-u", "required"])
+                .await
+                .unwrap()
+                .authentication,
+            Some(Authentication::Plain)
+        );
 
-        assert_eq!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).await.unwrap().authentication, Some(Authentication::MskIam));
-        assert_eq!(Args::try_validated_from(["kiek", "-a", "iam"]).await.unwrap().authentication, Some(Authentication::MskIam));
+        assert_eq!(
+            Args::try_validated_from(["kiek", "-a", "msk-iam"])
+                .await
+                .unwrap()
+                .authentication,
+            Some(Authentication::MskIam)
+        );
+        assert_eq!(
+            Args::try_validated_from(["kiek", "-a", "iam"])
+                .await
+                .unwrap()
+                .authentication,
+            Some(Authentication::MskIam)
+        );
 
-        assert_eq!(Args::try_validated_from(["kiek", "-a", "sha256", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Sha256));
-        assert_eq!(Args::try_validated_from(["kiek", "-a", "sha512", "-u", "required"]).await.unwrap().authentication, Some(Authentication::Sha512));
+        assert_eq!(
+            Args::try_validated_from(["kiek", "-a", "sha256", "-u", "required"])
+                .await
+                .unwrap()
+                .authentication,
+            Some(Authentication::Sha256)
+        );
+        assert_eq!(
+            Args::try_validated_from(["kiek", "-a", "sha512", "-u", "required"])
+                .await
+                .unwrap()
+                .authentication,
+            Some(Authentication::Sha512)
+        );
 
         // SASL/* requires username
-        assert!(Args::try_validated_from(["kiek", "-a", "plain"]).await.is_err());
-        assert!(Args::try_validated_from(["kiek", "-a", "sha256"]).await.is_err());
-        assert!(Args::try_validated_from(["kiek", "-a", "sha512"]).await.is_err());
+        assert!(Args::try_validated_from(["kiek", "-a", "plain"])
+            .await
+            .is_err());
+        assert!(Args::try_validated_from(["kiek", "-a", "sha256"])
+            .await
+            .is_err());
+        assert!(Args::try_validated_from(["kiek", "-a", "sha512"])
+            .await
+            .is_err());
 
-        assert!(Args::try_validated_from(["kiek", "-a", "msk-iam"]).await.is_ok());
-        assert!(Args::try_validated_from(["kiek", "-a", "iam"]).await.is_ok());
+        assert!(Args::try_validated_from(["kiek", "-a", "msk-iam"])
+            .await
+            .is_ok());
+        assert!(Args::try_validated_from(["kiek", "-a", "iam"])
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
     async fn test_password_requires_username() {
-        assert!(Args::try_validated_from(["kiek", "--password", "bar"]).await.is_err());
-        assert!(Args::try_validated_from(["kiek", "--pw", "bar"]).await.is_err());
-        assert!(Args::try_validated_from(["kiek", "--pw", "bar", "-u", "foo"]).await.is_ok());
+        assert!(Args::try_validated_from(["kiek", "--password", "bar"])
+            .await
+            .is_err());
+        assert!(Args::try_validated_from(["kiek", "--pw", "bar"])
+            .await
+            .is_err());
+        assert!(
+            Args::try_validated_from(["kiek", "--pw", "bar", "-u", "foo"])
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
     async fn test_just_one_password() {
-        assert!(Args::try_validated_from(["kiek", "-u", "foo:bar"]).await.is_ok());
-        assert!(Args::try_validated_from(["kiek", "-u", "foo:bar", "--pw", "bar"]).await.is_err());
+        assert!(Args::try_validated_from(["kiek", "-u", "foo:bar"])
+            .await
+            .is_ok());
+        assert!(
+            Args::try_validated_from(["kiek", "-u", "foo:bar", "--pw", "bar"])
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn test_authentication() {
-        let args = Args::try_validated_from(["kiek", "-a", "plain", "-u", "foo:bar", "-p", "aws-profile"]).await.unwrap();
+        let args =
+            Args::try_validated_from(["kiek", "-a", "plain", "-u", "foo:bar", "-p", "aws-profile"])
+                .await
+                .unwrap();
         assert_eq!(args.authentication(), Authentication::Plain);
     }
 
     #[test]
     fn test_topic_partition_parser() {
-        assert_eq!(TopicOrPartition::from_str("test-topic"), Ok(TopicOrPartition::Topic("test-topic".to_string())));
-        assert_eq!(TopicOrPartition::from_str("test-topic-0"), Ok(TopicOrPartition::TopicPartition("test-topic".to_string(), 0)));
-        assert_eq!(TopicOrPartition::from_str("test-topic-1"), Ok(TopicOrPartition::TopicPartition("test-topic".to_string(), 1)));
-        assert_eq!(TopicOrPartition::from_str("test-topic-10"), Ok(TopicOrPartition::TopicPartition("test-topic".to_string(), 10)));
-        assert_eq!(TopicOrPartition::from_str("test-topic-"), Ok(TopicOrPartition::Topic("test-topic-".to_string())));
-        assert_eq!(TopicOrPartition::from_str("test-topic-abc"), Ok(TopicOrPartition::Topic("test-topic-abc".to_string())));
+        assert_eq!(
+            TopicOrPartition::from_str("test-topic"),
+            Ok(TopicOrPartition::Topic("test-topic".to_string()))
+        );
+        assert_eq!(
+            TopicOrPartition::from_str("test-topic-0"),
+            Ok(TopicOrPartition::TopicPartition(
+                "test-topic".to_string(),
+                0
+            ))
+        );
+        assert_eq!(
+            TopicOrPartition::from_str("test-topic-1"),
+            Ok(TopicOrPartition::TopicPartition(
+                "test-topic".to_string(),
+                1
+            ))
+        );
+        assert_eq!(
+            TopicOrPartition::from_str("test-topic-10"),
+            Ok(TopicOrPartition::TopicPartition(
+                "test-topic".to_string(),
+                10
+            ))
+        );
+        assert_eq!(
+            TopicOrPartition::from_str("test-topic-"),
+            Ok(TopicOrPartition::Topic("test-topic-".to_string()))
+        );
+        assert_eq!(
+            TopicOrPartition::from_str("test-topic-abc"),
+            Ok(TopicOrPartition::Topic("test-topic-abc".to_string()))
+        );
     }
 
     #[test]
     fn test_offsets_parser() {
         assert_eq!(StartOffset::from_str("earliest"), Ok(StartOffset::Earliest));
-        assert_eq!(StartOffset::from_str("beginning"), Ok(StartOffset::Earliest));
+        assert_eq!(
+            StartOffset::from_str("beginning"),
+            Ok(StartOffset::Earliest)
+        );
         assert_eq!(StartOffset::from_str("latest"), Ok(StartOffset::Latest(0)));
         assert_eq!(StartOffset::from_str("end"), Ok(StartOffset::Latest(0)));
         assert_eq!(StartOffset::from_str("-1"), Ok(StartOffset::Latest(1)));
         assert_eq!(StartOffset::from_str("-10"), Ok(StartOffset::Latest(10)));
         assert_eq!(StartOffset::from_str("0"), Err(INVALID_OFFSET.to_string()));
         assert_eq!(StartOffset::from_str("1"), Err(INVALID_OFFSET.to_string()));
-        assert_eq!(StartOffset::from_str("latest1"), Err(INVALID_OFFSET.to_string()));
+        assert_eq!(
+            StartOffset::from_str("latest1"),
+            Err(INVALID_OFFSET.to_string())
+        );
     }
 
     #[test]
@@ -514,10 +686,16 @@ mod tests {
         assert_eq!(username, Username("foo-bar".to_string(), None));
 
         let username: Username = "foo:bar".parse().unwrap();
-        assert_eq!(username, Username("foo".to_string(), Some(Password("bar".to_string()))));
+        assert_eq!(
+            username,
+            Username("foo".to_string(), Some(Password("bar".to_string())))
+        );
 
         let username: Username = "foo:bar:baz".parse().unwrap();
-        assert_eq!(username, Username("foo".to_string(), Some(Password("bar:baz".to_string()))));
+        assert_eq!(
+            username,
+            Username("foo".to_string(), Some(Password("bar:baz".to_string())))
+        );
     }
 
     #[test]
@@ -538,7 +716,9 @@ mod tests {
         assert!(is_local("127.0.0.1:9092,127.0.0.1:19092"));
 
         assert!(!is_local("123.542.123.123:9092,123.542.123.124:9092"));
-        assert!(!is_local("b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.amazonaws.com:9198"));
+        assert!(!is_local(
+            "b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.amazonaws.com:9198"
+        ));
         assert!(!is_local("123.542.123.123:9092localhost:9092"));
         assert!(!is_local("localhost:9092,123.542.123.123:9092"));
     }

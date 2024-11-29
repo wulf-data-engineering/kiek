@@ -1,14 +1,14 @@
 mod app;
+mod args;
 mod aws;
-mod kafka;
-mod payload;
-mod highlight;
-mod glue;
-mod feedback;
-mod msk_iam_context;
 mod context;
 mod exception;
-mod args;
+mod feedback;
+mod glue;
+mod highlight;
+mod kafka;
+mod msk_iam_context;
+mod payload;
 
 use std::error::Error;
 

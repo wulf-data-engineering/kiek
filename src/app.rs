@@ -5,7 +5,11 @@ use crate::exception::KiekException;
 use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
-use crate::kafka::{assign_partition_for_key, assign_topic_or_partition, format_timestamp, select_topic_or_partition, FormatBootstrapServers, TopicOrPartition, DEFAULT_BROKER_STRING, DEFAULT_PORT};
+use crate::kafka::{
+    assign_partition_for_key, assign_topic_or_partition, format_timestamp,
+    select_topic_or_partition, FormatBootstrapServers, TopicOrPartition, DEFAULT_BROKER_STRING,
+    DEFAULT_PORT,
+};
 use crate::payload::{format_payload, parse_payload};
 use crate::{kafka, Result};
 use log::{debug, error, info, trace, LevelFilter};
@@ -24,12 +28,8 @@ pub async fn run() -> Result<()> {
     configure_logging(args.verbose, args.colors());
 
     match setup(args).await {
-        Err(e) => {
-            Args::fail(e)
-        }
-        Ok(_) => {
-            Ok(())
-        }
+        Err(e) => Args::fail(e),
+        Ok(_) => Ok(()),
     }
 }
 
@@ -51,23 +51,49 @@ async fn setup(args: Args) -> Result<()> {
 
     let bootstrap_servers = args.bootstrap_servers();
 
-    feedback.info("Connecting", format!("to Kafka cluster at {}", FormatBootstrapServers(&bootstrap_servers)));
+    feedback.info(
+        "Connecting",
+        format!(
+            "to Kafka cluster at {}",
+            FormatBootstrapServers(&bootstrap_servers)
+        ),
+    );
 
     verify_connection(&bootstrap_servers, &highlighting).await?;
 
     feedback.info("Set up", "authentication");
 
-    let (credentials_provider, profile, region) = create_credentials_provider(args.profile.clone(), args.region.clone(), args.role_arn.clone()).await;
+    let (credentials_provider, profile, region) = create_credentials_provider(
+        args.profile.clone(),
+        args.region.clone(),
+        args.role_arn.clone(),
+    )
+    .await;
 
-    let glue_schema_registry_facade = GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
+    let glue_schema_registry_facade =
+        GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
 
     match authentication {
         Authentication::MskIam => {
-            let consumer = kafka::create_msk_consumer(&bootstrap_servers, credentials_provider.clone(), profile.clone(), region.clone(), args.no_ssl, &feedback).await?;
+            let consumer = kafka::create_msk_consumer(
+                &bootstrap_servers,
+                credentials_provider.clone(),
+                profile.clone(),
+                region.clone(),
+                args.no_ssl,
+                &feedback,
+            )
+            .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
         _ => {
-            let consumer = kafka::create_consumer(&bootstrap_servers, authentication, credentials, args.no_ssl).await?;
+            let consumer = kafka::create_consumer(
+                &bootstrap_servers,
+                authentication,
+                credentials,
+                args.no_ssl,
+            )
+            .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
     }
@@ -76,17 +102,21 @@ async fn setup(args: Args) -> Result<()> {
 ///
 /// Connect to the broker, assign partition(s) and delegate to consuming messages.
 ///
-async fn connect<C>(args: Args, feedback: &Feedback, glue_schema_registry_facade: GlueSchemaRegistryFacade, consumer: StreamConsumer<C>) -> Result<()>
+async fn connect<C>(
+    args: Args,
+    feedback: &Feedback,
+    glue_schema_registry_facade: GlueSchemaRegistryFacade,
+    consumer: StreamConsumer<C>,
+) -> Result<()>
 where
     C: KiekContext + 'static,
 {
     kafka::connect(&consumer, &feedback.highlighting).await?;
 
-    let topic_or_partition: TopicOrPartition =
-        match &args.topic_or_partition {
-            Some(topic_or_partition) => topic_or_partition.clone(),
-            None => select_topic_or_partition(&consumer, feedback).await?
-        };
+    let topic_or_partition: TopicOrPartition = match &args.topic_or_partition {
+        Some(topic_or_partition) => topic_or_partition.clone(),
+        None => select_topic_or_partition(&consumer, feedback).await?,
+    };
 
     let start_offset = args.start_offset();
 
@@ -94,10 +124,12 @@ where
 
     match &args.key {
         Some(key) => {
-            assign_partition_for_key(&consumer, &topic_or_partition, key, start_offset, feedback).await?;
+            assign_partition_for_key(&consumer, &topic_or_partition, key, start_offset, feedback)
+                .await?;
         }
         None => {
-            assign_topic_or_partition(&consumer, &topic_or_partition, start_offset, feedback).await?;
+            assign_topic_or_partition(&consumer, &topic_or_partition, start_offset, feedback)
+                .await?;
         }
     }
 
@@ -107,7 +139,12 @@ where
 ///
 /// Consume messages from the Kafka topic or partition and print them to stdout.
 ///
-async fn consume<Ctx>(args: Args, consumer: StreamConsumer<Ctx>, glue_schema_registry_facade: GlueSchemaRegistryFacade, feedback: &Feedback) -> Result<()>
+async fn consume<Ctx>(
+    args: Args,
+    consumer: StreamConsumer<Ctx>,
+    glue_schema_registry_facade: GlueSchemaRegistryFacade,
+    feedback: &Feedback,
+) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
@@ -151,7 +188,9 @@ where
                 let partition = message.partition();
                 let offset = message.offset();
 
-                let timestamp = format_timestamp(&message.timestamp(), &start_date, &feedback.highlighting).unwrap_or("".to_string());
+                let timestamp =
+                    format_timestamp(&message.timestamp(), &start_date, &feedback.highlighting)
+                        .unwrap_or("".to_string());
 
                 feedback.clear();
                 println!("{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}");
@@ -164,9 +203,17 @@ where
 /// In non-verbose mode, logging is turned off.
 fn configure_logging(verbose: bool, colors: bool) {
     if verbose {
-        SimpleLogger::new().with_colors(colors).with_level(LevelFilter::Info).with_module_level(module_path!(), LevelFilter::Debug).init().unwrap();
+        SimpleLogger::new()
+            .with_colors(colors)
+            .with_level(LevelFilter::Info)
+            .with_module_level(module_path!(), LevelFilter::Debug)
+            .init()
+            .unwrap();
     } else {
-        SimpleLogger::new().with_level(LevelFilter::Off).init().unwrap();
+        SimpleLogger::new()
+            .with_level(LevelFilter::Off)
+            .init()
+            .unwrap();
     }
 }
 
@@ -216,7 +263,9 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
             match target.get_resolve_policy().resolve(target.get_fqhn()) {
                 Err(e) => {
                     error!("Could not resolve {}: {e}", target.get_fqhn());
-                    Err(KiekException::new(format!("Failed to resolve broker address {first_server}.")))
+                    Err(KiekException::new(format!(
+                        "Failed to resolve broker address {first_server}."
+                    )))
                 }
                 Ok(addrs) => {
                     let mut attempt_addrs = addrs.clone();
@@ -238,7 +287,10 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
                             if bootstrap_servers == DEFAULT_BROKER_STRING {
                                 Err(KiekException::new(format!("Failed to connect to Kafka cluster at {DEFAULT_BROKER_STRING}. Use {bold}-b, --bootstrap-servers{bold:#} to configure.", bold = highlighting.bold)))
                             } else {
-                                Err(KiekException::new(format!("Failed to connect to Kafka cluster at {}.", FormatBootstrapServers(bootstrap_servers))))
+                                Err(KiekException::new(format!(
+                                    "Failed to connect to Kafka cluster at {}.",
+                                    FormatBootstrapServers(bootstrap_servers)
+                                )))
                             }
                         }
                     }
@@ -247,7 +299,6 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -265,13 +316,16 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
 
-        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h).await.is_ok());
+        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h)
+            .await
+            .is_ok());
 
         drop(listener); // disconnect
 
-        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h).await.is_err());
+        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h)
+            .await
+            .is_err());
 
         assert!(verify_connection("www.google.de:443", &h).await.is_ok());
     }
 }
-

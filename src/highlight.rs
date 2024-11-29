@@ -1,10 +1,10 @@
 use avro_rs::types::Value as AvroValue;
 use chrono::{DateTime, Datelike, NaiveDate};
 use clap::builder::styling::{AnsiColor, Color, Style};
+use dialoguer::theme::{ColorfulTheme, SimpleTheme, Theme};
 use lazy_static::lazy_static;
 use serde_json::Value as JsonValue;
 use std::fmt::{Display, Formatter};
-use dialoguer::theme::{ColorfulTheme, SimpleTheme, Theme};
 
 const PARTITION_COLOR_CODES: [u8; 12] = [124, 19, 29, 136, 63, 88, 27, 36, 214, 160, 69, 66];
 
@@ -51,10 +51,19 @@ impl Highlighting {
             plain: Style::new(),
             bold: Style::new().bold(),
             dimmed: Style::new().dimmed(),
-            success: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))).bold(),
-            warning: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Yellow))).bold(),
-            error: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Red))).bold(),
-            partition_styles: PARTITION_COLOR_CODES.iter().map(|color| Style::new().fg_color(Some(Color::from(*color)))).collect(),
+            success: Style::new()
+                .fg_color(Some(Color::Ansi(AnsiColor::Green)))
+                .bold(),
+            warning: Style::new()
+                .fg_color(Some(Color::Ansi(AnsiColor::Yellow)))
+                .bold(),
+            error: Style::new()
+                .fg_color(Some(Color::Ansi(AnsiColor::Red)))
+                .bold(),
+            partition_styles: PARTITION_COLOR_CODES
+                .iter()
+                .map(|color| Style::new().fg_color(Some(Color::from(*color))))
+                .collect(),
             // These are close to the colors of the IntelliJ IDEA JSON viewer
             key: Style::new().fg_color(Some(Color::from(54))),
             string: Style::new().fg_color(Some(Color::from(22))),
@@ -76,11 +85,14 @@ impl Highlighting {
     }
 }
 
-
 ///
 /// Formats a JSON value to a string with syntax highlighting.
 ///
-pub(crate) fn write_json_value(f: &mut Formatter<'_>, value: &JsonValue, highlighting: &Highlighting) -> std::fmt::Result {
+pub(crate) fn write_json_value(
+    f: &mut Formatter<'_>,
+    value: &JsonValue,
+    highlighting: &Highlighting,
+) -> std::fmt::Result {
     match value {
         JsonValue::Null => write_null(f, highlighting),
         JsonValue::Bool(boolean) => write_keyword(f, *boolean, highlighting),
@@ -94,9 +106,18 @@ pub(crate) fn write_json_value(f: &mut Formatter<'_>, value: &JsonValue, highlig
 ///
 /// Formats an AVRO value to a string with syntax highlighting.
 ///
-pub(crate) fn write_avro_value(f: &mut Formatter<'_>, value: &AvroValue, highlighting: &Highlighting) -> std::fmt::Result {
+pub(crate) fn write_avro_value(
+    f: &mut Formatter<'_>,
+    value: &AvroValue,
+    highlighting: &Highlighting,
+) -> std::fmt::Result {
     match value {
-        AvroValue::Record(record) => write_map(f, record.iter().map(|(k, v)| (k, v)), write_avro_value, highlighting),
+        AvroValue::Record(record) => write_map(
+            f,
+            record.iter().map(|(k, v)| (k, v)),
+            write_avro_value,
+            highlighting,
+        ),
         AvroValue::Map(map) => write_map(f, map.iter(), write_avro_value, highlighting),
         AvroValue::Enum(_, symbol) => write_string_value(f, symbol, highlighting),
         AvroValue::Union(value) => write_avro_value(f, value, highlighting),
@@ -110,13 +131,31 @@ pub(crate) fn write_avro_value(f: &mut Formatter<'_>, value: &AvroValue, highlig
         AvroValue::Double(double) => write_number(f, double, highlighting),
         AvroValue::Boolean(boolean) => write_keyword(f, boolean, highlighting),
         AvroValue::Null => write_keyword(f, "null", highlighting),
-        AvroValue::Date(date) => write_string_value(f, NaiveDate::from_num_days_from_ce_opt(*EPOCH_DAYS_OFFSET + date).unwrap().to_string(), highlighting),
-        AvroValue::Decimal(decimal) => write_string_value(f, format!("{:?}", decimal), highlighting),
+        AvroValue::Date(date) => write_string_value(
+            f,
+            NaiveDate::from_num_days_from_ce_opt(*EPOCH_DAYS_OFFSET + date)
+                .unwrap()
+                .to_string(),
+            highlighting,
+        ),
+        AvroValue::Decimal(decimal) => {
+            write_string_value(f, format!("{:?}", decimal), highlighting)
+        }
         AvroValue::TimeMillis(ms) => write_string_value(f, format!("{ms}ms"), highlighting),
         AvroValue::TimeMicros(micros) => write_string_value(f, format!("{micros}µs"), highlighting),
-        AvroValue::TimestampMillis(ts) => write_string_value(f, DateTime::from_timestamp_millis(*ts).unwrap().to_string(), highlighting),
-        AvroValue::TimestampMicros(ts) => write_string_value(f, DateTime::from_timestamp_micros(*ts).unwrap().to_string(), highlighting),
-        AvroValue::Duration(duration) => write_string_value(f, format!("{duration:?}"), highlighting),
+        AvroValue::TimestampMillis(ts) => write_string_value(
+            f,
+            DateTime::from_timestamp_millis(*ts).unwrap().to_string(),
+            highlighting,
+        ),
+        AvroValue::TimestampMicros(ts) => write_string_value(
+            f,
+            DateTime::from_timestamp_micros(*ts).unwrap().to_string(),
+            highlighting,
+        ),
+        AvroValue::Duration(duration) => {
+            write_string_value(f, format!("{duration:?}"), highlighting)
+        }
         AvroValue::Uuid(uuid) => write_string_value(f, uuid.to_string(), highlighting),
     }
 }
@@ -125,25 +164,54 @@ fn write_key(f: &mut Formatter<'_>, key: &str, highlighting: &Highlighting) -> s
     write!(f, "{style}\"{key}\"{style:#}", style = highlighting.key)
 }
 
-fn write_string_value<S: Into<String>>(f: &mut Formatter<'_>, value: S, highlighting: &Highlighting) -> std::fmt::Result {
-    write!(f, "{style}\"{value}\"{style:#}", value = value.into(), style = highlighting.string)
+fn write_string_value<S: Into<String>>(
+    f: &mut Formatter<'_>,
+    value: S,
+    highlighting: &Highlighting,
+) -> std::fmt::Result {
+    write!(
+        f,
+        "{style}\"{value}\"{style:#}",
+        value = value.into(),
+        style = highlighting.string
+    )
 }
 
-fn write_number<V: Display>(f: &mut Formatter<'_>, value: V, highlighting: &Highlighting) -> std::fmt::Result {
+fn write_number<V: Display>(
+    f: &mut Formatter<'_>,
+    value: V,
+    highlighting: &Highlighting,
+) -> std::fmt::Result {
     write!(f, "{style}{value}{style:#}", style = highlighting.number)
 }
 
-fn write_keyword<V: ToString>(f: &mut Formatter<'_>, value: V, highlighting: &Highlighting) -> std::fmt::Result {
-    write!(f, "{style}{value}{style:#}", value = value.to_string(), style = highlighting.keyword)
+fn write_keyword<V: ToString>(
+    f: &mut Formatter<'_>,
+    value: V,
+    highlighting: &Highlighting,
+) -> std::fmt::Result {
+    write!(
+        f,
+        "{style}{value}{style:#}",
+        value = value.to_string(),
+        style = highlighting.keyword
+    )
 }
 
 pub(crate) fn write_null(f: &mut Formatter<'_>, highlighting: &Highlighting) -> std::fmt::Result {
     write!(f, "{style}null{style:#}", style = highlighting.keyword)
 }
 
-fn write_entries<'a, V: 'a, I, F>(f: &mut Formatter<'_>, entries: I, prefix: &str, mut write_entry: F, suffix: &str, highlighting: &Highlighting) -> std::fmt::Result
+fn write_entries<'a, V: 'a, I, F>(
+    f: &mut Formatter<'_>,
+    entries: I,
+    prefix: &str,
+    mut write_entry: F,
+    suffix: &str,
+    highlighting: &Highlighting,
+) -> std::fmt::Result
 where
-    I: Iterator<Item=V>,
+    I: Iterator<Item = V>,
     F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
     f.write_str(prefix)?;
@@ -159,24 +227,48 @@ where
     f.write_str(suffix)
 }
 
-fn write_array<'a, V: 'a, I, F>(f: &mut Formatter<'_>, values: I, mut write_value: F, highlighting: &Highlighting) -> std::fmt::Result
+fn write_array<'a, V: 'a, I, F>(
+    f: &mut Formatter<'_>,
+    values: I,
+    mut write_value: F,
+    highlighting: &Highlighting,
+) -> std::fmt::Result
 where
-    I: Iterator<Item=&'a V>,
+    I: Iterator<Item = &'a V>,
     F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
-    write_entries(f, values, "[", |f, value, _| write_value(f, *value, highlighting), "]", highlighting)
+    write_entries(
+        f,
+        values,
+        "[",
+        |f, value, _| write_value(f, *value, highlighting),
+        "]",
+        highlighting,
+    )
 }
 
-fn write_map<'a, V: 'a, I, F>(f: &mut Formatter<'_>, entries: I, mut write_value: F, highlighting: &Highlighting) -> std::fmt::Result
+fn write_map<'a, V: 'a, I, F>(
+    f: &mut Formatter<'_>,
+    entries: I,
+    mut write_value: F,
+    highlighting: &Highlighting,
+) -> std::fmt::Result
 where
-    I: Iterator<Item=(&'a String, &'a V)>,
+    I: Iterator<Item = (&'a String, &'a V)>,
     F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
-    write_entries(f, entries, "{", |f, (key, value), _| {
-        write_key(f, key, highlighting)?;
-        f.write_str(":")?;
-        write_value(f, value, highlighting)
-    }, "}", highlighting)
+    write_entries(
+        f,
+        entries,
+        "{",
+        |f, (key, value), _| {
+            write_key(f, key, highlighting)?;
+            f.write_str(":")?;
+            write_value(f, value, highlighting)
+        },
+        "}",
+        highlighting,
+    )
 }
 
 lazy_static! {
@@ -186,8 +278,8 @@ lazy_static! {
 
 #[cfg(test)]
 mod tests {
-    use avro_rs::{Months, Days, Duration, Millis};
     use super::*;
+    use avro_rs::{Days, Duration, Millis, Months};
     struct JsonFormatting {
         value: JsonValue,
         highlighting: Highlighting,
@@ -213,17 +305,37 @@ mod tests {
     #[test]
     fn test_format_json_value() {
         let value = JsonValue::Object(serde_json::Map::from_iter(vec![
-            ("name".to_string(), JsonValue::String("Jane Doe".to_string())),
+            (
+                "name".to_string(),
+                JsonValue::String("Jane Doe".to_string()),
+            ),
             ("age".to_string(), JsonValue::Number(25.into())),
-            ("city".to_string(), JsonValue::String("San Francisco".to_string())),
-        ]
-        ));
+            (
+                "city".to_string(),
+                JsonValue::String("San Francisco".to_string()),
+            ),
+        ]));
 
-        let formatted = format!("{}", JsonFormatting { value: value.clone(), highlighting: Highlighting::plain() });
-        assert_eq!(formatted, "{\"age\":25,\"city\":\"San Francisco\",\"name\":\"Jane Doe\"}");
+        let formatted = format!(
+            "{}",
+            JsonFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::plain()
+            }
+        );
+        assert_eq!(
+            formatted,
+            "{\"age\":25,\"city\":\"San Francisco\",\"name\":\"Jane Doe\"}"
+        );
 
         // make sure the last ANSI code is a reset code
-        let formatted = format!("{}", JsonFormatting { value: value.clone(), highlighting: Highlighting::colors() });
+        let formatted = format!(
+            "{}",
+            JsonFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::colors()
+            }
+        );
         let last_reset_index = formatted.rfind("\u{001B}[0m").unwrap();
         let last_ansi_index = formatted.rfind("\u{001B}").unwrap();
         assert_eq!(last_reset_index, last_ansi_index);
@@ -232,46 +344,113 @@ mod tests {
     #[test]
     fn test_format_avro_value() {
         let value = AvroValue::Record(vec![
-            ("name".to_string(), AvroValue::String("Jane Doe".to_string())),
+            (
+                "name".to_string(),
+                AvroValue::String("Jane Doe".to_string()),
+            ),
             ("age".to_string(), AvroValue::Int(25)),
-            ("city".to_string(), AvroValue::String("San Francisco".to_string())),
+            (
+                "city".to_string(),
+                AvroValue::String("San Francisco".to_string()),
+            ),
         ]);
 
-        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
-        assert_eq!(formatted, "{\"name\":\"Jane Doe\",\"age\":25,\"city\":\"San Francisco\"}");
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::plain()
+            }
+        );
+        assert_eq!(
+            formatted,
+            "{\"name\":\"Jane Doe\",\"age\":25,\"city\":\"San Francisco\"}"
+        );
 
         // make sure the last ANSI code is a reset code
-        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::colors() });
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::colors()
+            }
+        );
         let last_reset_index = formatted.rfind("\u{001B}[0m").unwrap();
         let last_ansi_index = formatted.rfind("\u{001B}").unwrap();
         assert_eq!(last_reset_index, last_ansi_index);
 
         let value = AvroValue::Date(4);
-        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::plain()
+            }
+        );
         assert_eq!(formatted, "\"1970-01-05\"");
 
         let value = AvroValue::TimeMillis(1234567890);
-        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::plain()
+            }
+        );
         assert_eq!(formatted, "\"1234567890ms\"");
 
         let value = AvroValue::TimeMicros(1234567890);
-        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::plain()
+            }
+        );
         assert_eq!(formatted, "\"1234567890µs\"");
 
         let value = AvroValue::TimestampMillis(1234567890);
-        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::plain()
+            }
+        );
         assert_eq!(formatted, "\"1970-01-15 06:56:07.890 UTC\"");
 
         let value = AvroValue::TimestampMicros(1234567890000);
-        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::plain()
+            }
+        );
         assert_eq!(formatted, "\"1970-01-15 06:56:07.890 UTC\"");
 
         let value = AvroValue::TimestampMicros(1234567890001);
-        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::plain()
+            }
+        );
         assert_eq!(formatted, "\"1970-01-15 06:56:07.890001 UTC\"");
 
-        let value = AvroValue::Duration(Duration::new(Months::new(1), Days::new(2), Millis::new(3)));
-        let formatted = format!("{}", AvroFormatting { value: value.clone(), highlighting: Highlighting::plain() });
-        assert_eq!(formatted, "\"Duration { months: Months(U32(1)), days: Days(U32(2)), millis: Millis(U32(3)) }\"");
+        let value =
+            AvroValue::Duration(Duration::new(Months::new(1), Days::new(2), Millis::new(3)));
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::plain()
+            }
+        );
+        assert_eq!(
+            formatted,
+            "\"Duration { months: Months(U32(1)), days: Days(U32(2)), millis: Millis(U32(3)) }\""
+        );
     }
 }

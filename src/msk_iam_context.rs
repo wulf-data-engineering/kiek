@@ -36,9 +36,21 @@ pub(crate) struct IamContext {
 }
 
 impl IamContext {
-    pub(crate) fn new(credentials_provider: SharedCredentialsProvider, profile: String, region: Region, feedback: &Feedback) -> Self {
+    pub(crate) fn new(
+        credentials_provider: SharedCredentialsProvider,
+        profile: String,
+        region: Region,
+        feedback: &Feedback,
+    ) -> Self {
         let feedback = feedback.clone();
-        Self { credentials_provider, profile, region, feedback, rt: Handle::current(), last_fail: Arc::new(Mutex::new(None)) }
+        Self {
+            credentials_provider,
+            profile,
+            region,
+            feedback,
+            rt: Handle::current(),
+            last_fail: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
@@ -59,23 +71,26 @@ impl ClientContext for IamContext {
         let region = self.region.clone();
         let credentials_provider = self.credentials_provider.clone();
         let handle = self.rt.clone();
-        self.feedback.info("Authorizing", "using AWS IAM auth token");
+        self.feedback
+            .info("Authorizing", "using AWS IAM auth token");
         let (token, expiration_time_ms) = {
             let handle = thread::spawn(move || {
                 handle.block_on(async {
-                    timeout(AUTH_TOKEN_TIMEOUT, generate_auth_token_from_credentials_provider(region, credentials_provider)).await.map(|r| {
-                        match r {
-                            Ok(token) => {
-                                info!("Generated OAuth token: {} {}", token.0, token.1);
-                                Ok(token)
-                            }
-                            Err(err) => {
-                                error!("Failed to generate OAuth token: {}", err);
-                                Err(err)
-                            }
-                        }
-                    }
+                    timeout(
+                        AUTH_TOKEN_TIMEOUT,
+                        generate_auth_token_from_credentials_provider(region, credentials_provider),
                     )
+                    .await
+                    .map(|r| match r {
+                        Ok(token) => {
+                            info!("Generated OAuth token: {} {}", token.0, token.1);
+                            Ok(token)
+                        }
+                        Err(err) => {
+                            error!("Failed to generate OAuth token: {}", err);
+                            Err(err)
+                        }
+                    })
                 })
             });
             handle.join().unwrap()??

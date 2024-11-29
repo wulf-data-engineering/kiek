@@ -1,3 +1,4 @@
+use crate::args::{Authentication, Password};
 use crate::context::{DefaultKiekContext, KiekContext};
 use crate::exception::KiekException;
 use crate::feedback::Feedback;
@@ -23,7 +24,6 @@ use rdkafka::{Offset, Timestamp};
 use std::collections::HashMap;
 use std::time::Duration;
 use termion::clear;
-use crate::args::{Authentication, Password};
 
 pub(crate) const DEFAULT_PORT: i32 = 9092;
 pub(crate) const DEFAULT_BROKER_STRING: &str = "127.0.0.1:9092";
@@ -47,7 +47,12 @@ pub fn create_config<S: Into<String>>(bootstrap_servers: S) -> ClientConfig {
 /// Create a Kafka consumer to connect to a Kafka cluster without or with username/password SASL
 /// authentication.
 ///
-pub async fn create_consumer(bootstrap_servers: &String, authentication: Authentication, credentials: Option<(String, Password)>, no_ssl: bool) -> Result<StreamConsumer<DefaultKiekContext>> {
+pub async fn create_consumer(
+    bootstrap_servers: &String,
+    authentication: Authentication,
+    credentials: Option<(String, Password)>,
+    no_ssl: bool,
+) -> Result<StreamConsumer<DefaultKiekContext>> {
     let mut client_config = create_config(bootstrap_servers);
 
     if authentication != Authentication::None {
@@ -55,7 +60,7 @@ pub async fn create_consumer(bootstrap_servers: &String, authentication: Authent
             Authentication::Plain => "PLAIN",
             Authentication::Sha256 => "SCRAM-SHA-256",
             Authentication::Sha512 => "SCRAM-SHA-512",
-            _ => unreachable!()
+            _ => unreachable!(),
         };
 
         if !no_ssl {
@@ -66,7 +71,9 @@ pub async fn create_consumer(bootstrap_servers: &String, authentication: Authent
         client_config.set("sasl.mechanism", mechanism);
         info!("Using {mechanism} as SASL mechanism.");
 
-        let (username, password) = credentials.ok_or(KiekException::new("No credentials provided for SASL authentication."))?;
+        let (username, password) = credentials.ok_or(KiekException::new(
+            "No credentials provided for SASL authentication.",
+        ))?;
         client_config.set("sasl.username", &username);
         client_config.set("sasl.password", password.plain());
     } else {
@@ -78,11 +85,17 @@ pub async fn create_consumer(bootstrap_servers: &String, authentication: Authent
     Ok(client_config.create_with_context(context)?)
 }
 
-
 ///
 /// Create a Kafka consumer to connect to an MSK cluster with IAM authentication.
 ///
-pub async fn create_msk_consumer(bootstrap_servers: &String, credentials_provider: SharedCredentialsProvider, profile: String, region: Region, no_ssl: bool, feedback: &Feedback) -> Result<StreamConsumer<IamContext>> {
+pub async fn create_msk_consumer(
+    bootstrap_servers: &String,
+    credentials_provider: SharedCredentialsProvider,
+    profile: String,
+    region: Region,
+    no_ssl: bool,
+    feedback: &Feedback,
+) -> Result<StreamConsumer<IamContext>> {
     let mut client_config = create_config(bootstrap_servers);
     if !no_ssl {
         client_config.set("security.protocol", "SASL_SSL");
@@ -111,12 +124,10 @@ where
             info!("Connected.");
             Ok(())
         }
-        Some(e) => {
-            match e {
-                Err(e) => Err(KiekException::from(e)),
-                Ok(_) => unreachable!("Consumer is not assigned yet.")
-            }
-        }
+        Some(e) => match e {
+            Err(e) => Err(KiekException::from(e)),
+            Ok(_) => unreachable!("Consumer is not assigned yet."),
+        },
     }
 }
 
@@ -124,20 +135,21 @@ where
 /// If result is Kafka broker transport failure, delay the error message until the Kafka log message
 /// is available.
 ///
-async fn map_errors<Ctx, R>(consumer: &StreamConsumer<Ctx>, result: std::result::Result<R, KafkaError>) -> Result<R>
+async fn map_errors<Ctx, R>(
+    consumer: &StreamConsumer<Ctx>,
+    result: std::result::Result<R, KafkaError>,
+) -> Result<R>
 where
     Ctx: KiekContext + 'static,
 {
     match result {
         Ok(r) => Ok(r),
-        Err(error) => {
-            Err(match error.rdkafka_error_code() {
-                Some(RDKafkaErrorCode::BrokerTransportFailure) => {
-                    KiekException::delayed(error.to_string(), &consumer.context().last_fail())
-                }
-                _ => Box::new(error)
-            })
-        }
+        Err(error) => Err(match error.rdkafka_error_code() {
+            Some(RDKafkaErrorCode::BrokerTransportFailure) => {
+                KiekException::delayed(error.to_string(), &consumer.context().last_fail())
+            }
+            _ => Box::new(error),
+        }),
     }
 }
 
@@ -166,32 +178,40 @@ pub(crate) enum StartOffset {
 /// Looks up the number of partitions for given topic in the Kafka cluster.
 /// Calculates the partition for the given key and assigns it to the consumer with given offset configuration.
 ///
-pub async fn assign_partition_for_key<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, key: &str, start_offset: StartOffset, feedback: &Feedback) -> Result<()>
+pub async fn assign_partition_for_key<Ctx>(
+    consumer: &StreamConsumer<Ctx>,
+    topic_or_partition: &TopicOrPartition,
+    key: &str,
+    start_offset: StartOffset,
+    feedback: &Feedback,
+) -> Result<()>
 where
     Ctx: KiekContext + 'static,
 {
-    let (topic_or_partition, num_partitions) = verify_topic_or_partition(consumer, topic_or_partition, feedback).await?;
+    let (topic_or_partition, num_partitions) =
+        verify_topic_or_partition(consumer, topic_or_partition, feedback).await?;
 
     let topic = topic_or_partition.topic();
 
     let partition = partition_for_key(key, num_partitions);
 
-    let partition =
-        match topic_or_partition {
-            TopicOrPartition::Topic(_) => partition,
-            TopicOrPartition::TopicPartition(_, configured_partition) => {
-                if partition != configured_partition {
-                    feedback.warning(format!("Key {bold}{key}{bold:#} would be expected in partition {success}{partition}{success:#} with default partitioning, not in configured partition {error}{configured_partition}{error:#}.",
+    let partition = match topic_or_partition {
+        TopicOrPartition::Topic(_) => partition,
+        TopicOrPartition::TopicPartition(_, configured_partition) => {
+            if partition != configured_partition {
+                feedback.warning(format!("Key {bold}{key}{bold:#} would be expected in partition {success}{partition}{success:#} with default partitioning, not in configured partition {error}{configured_partition}{error:#}.",
                                              bold = feedback.highlighting.bold,
                                              success = feedback.highlighting.success,
                                              error = feedback.highlighting.error))
-                }
-                configured_partition
             }
-        };
+            configured_partition
+        }
+    };
 
-    let partition_offsets: HashMap<(String, i32), Offset> =
-        HashMap::from([((topic.to_string(), partition as i32), offset_for(start_offset))]);
+    let partition_offsets: HashMap<(String, i32), Offset> = HashMap::from([(
+        (topic.to_string(), partition as i32),
+        offset_for(start_offset),
+    )]);
 
     info!("Assigning partition {partition} for {topic} to search for key {key}.");
 
@@ -209,7 +229,10 @@ where
 ///
 /// Fail if there is no topic at all or if topic choice is ambiguous in non-interactive mode.
 ///
-pub async fn select_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, feedback: &Feedback) -> Result<TopicOrPartition>
+pub async fn select_topic_or_partition<Ctx>(
+    consumer: &StreamConsumer<Ctx>,
+    feedback: &Feedback,
+) -> Result<TopicOrPartition>
 where
     Ctx: KiekContext + 'static,
 {
@@ -217,17 +240,25 @@ where
 
     let metadata = map_errors(consumer, consumer.fetch_metadata(None, TIMEOUT)).await?;
 
-    let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
+    let topic_names: Vec<String> = metadata
+        .topics()
+        .iter()
+        .map(|t| t.name().to_string())
+        .collect();
 
     if topic_names.is_empty() {
-        Err(KiekException::new("No topics available in the Kafka cluster"))
+        Err(KiekException::new(
+            "No topics available in the Kafka cluster",
+        ))
     } else if topic_names.len() == 1 {
         feedback.info("Using", format!("topic {topic}", topic = &topic_names[0]));
         Ok(TopicOrPartition::Topic(topic_names[0].clone()))
     } else if feedback.interactive {
         prompt_topic_or_partition(&metadata, None, feedback).map(|(topic, _)| topic)
     } else {
-        Err(KiekException::new("Multiple topics available in the Kafka cluster: Please specify a topic."))
+        Err(KiekException::new(
+            "Multiple topics available in the Kafka cluster: Please specify a topic.",
+        ))
     }
 }
 
@@ -237,26 +268,37 @@ where
 /// If a topic had been given and does not exist, sorts the topics by Levensthein distance to the
 /// given topic name.
 ///
-fn prompt_topic_or_partition(metadata: &Metadata, given: Option<&TopicOrPartition>, feedback: &Feedback) -> Result<(TopicOrPartition, usize)> {
+fn prompt_topic_or_partition(
+    metadata: &Metadata,
+    given: Option<&TopicOrPartition>,
+    feedback: &Feedback,
+) -> Result<(TopicOrPartition, usize)> {
     assert!(feedback.interactive);
-    let topic_names: Vec<String> = metadata.topics().iter().map(|t| t.name().to_string()).collect();
+    let topic_names: Vec<String> = metadata
+        .topics()
+        .iter()
+        .map(|t| t.name().to_string())
+        .collect();
 
     let given_topic = given.map(|t| t.topic());
 
     // Sort topics by Levenshtein distance to the given topic name
-    let topic_names =
-        if let Some(given_topic) = given_topic {
-            let mut similar_topics: Vec<(String, usize)> = topic_names.iter()
-                .map(|t| (t.clone(), levenshtein(given_topic, t)))
-                .collect();
-            similar_topics.sort_by(|a, b| a.1.cmp(&b.1));
-            similar_topics.iter().map(|(t, _)| t.clone()).collect()
-        } else {
-            topic_names
-        };
+    let topic_names = if let Some(given_topic) = given_topic {
+        let mut similar_topics: Vec<(String, usize)> = topic_names
+            .iter()
+            .map(|t| (t.clone(), levenshtein(given_topic, t)))
+            .collect();
+        similar_topics.sort_by(|a, b| a.1.cmp(&b.1));
+        similar_topics.iter().map(|(t, _)| t.clone()).collect()
+    } else {
+        topic_names
+    };
 
     let prompt = if let Some(given) = given {
-        format!("{topic} does not exist. Please select a topic.", topic = given.topic())
+        format!(
+            "{topic} does not exist. Please select a topic.",
+            topic = given.topic()
+        )
     } else {
         "Select a topic".to_string()
     };
@@ -270,43 +312,55 @@ fn prompt_topic_or_partition(metadata: &Metadata, given: Option<&TopicOrPartitio
         .max_length(15);
 
     // preselect the topic with the best Levenshtein distance
-    let select =
-        if given.is_some() {
-            select.default(0)
-        } else {
-            select
-        };
+    let select = if given.is_some() {
+        select.default(0)
+    } else {
+        select
+    };
 
     let selection = select.interact().unwrap();
 
     let topic = &topic_names[selection];
 
-    let num_partitions = metadata.topics().iter().find(|t| t.name() == topic).unwrap().partitions().len();
+    let num_partitions = metadata
+        .topics()
+        .iter()
+        .find(|t| t.name() == topic)
+        .unwrap()
+        .partitions()
+        .len();
 
     match given {
-        Some(TopicOrPartition::TopicPartition(_, partition)) => {
-            Ok((TopicOrPartition::TopicPartition(topic.clone(), *partition), num_partitions))
-        }
+        Some(TopicOrPartition::TopicPartition(_, partition)) => Ok((
+            TopicOrPartition::TopicPartition(topic.clone(), *partition),
+            num_partitions,
+        )),
         Some(TopicOrPartition::Topic(_)) => {
             Ok((TopicOrPartition::Topic(topic.clone()), num_partitions))
         }
-        None => {
-            prompt_partition(feedback, theme, topic, num_partitions)
-        }
+        None => prompt_partition(feedback, theme, topic, num_partitions),
     }
 }
 
-fn prompt_partition(feedback: &Feedback, theme: Box<dyn Theme>, topic: &String, num_partitions: usize) -> Result<(TopicOrPartition, usize)> {
-    let partitions: Vec<String> =
-        (-1..num_partitions as i32).map(|p|
+fn prompt_partition(
+    feedback: &Feedback,
+    theme: Box<dyn Theme>,
+    topic: &String,
+    num_partitions: usize,
+) -> Result<(TopicOrPartition, usize)> {
+    let partitions: Vec<String> = (-1..num_partitions as i32)
+        .map(|p| {
             if p == -1 {
                 format!("{topic} (all partitions)")
             } else {
-                format!("{color}{topic}{color:#}{dimmed}-{dimmed:#}{color}{p}{color:#}",
-                        color = feedback.highlighting.partition(p),
-                        dimmed = feedback.highlighting.partition(p).dimmed())
+                format!(
+                    "{color}{topic}{color:#}{dimmed}-{dimmed:#}{color}{p}{color:#}",
+                    color = feedback.highlighting.partition(p),
+                    dimmed = feedback.highlighting.partition(p).dimmed()
+                )
             }
-        ).collect();
+        })
+        .collect();
 
     let partition = Select::with_theme(&*theme)
         .with_prompt("Select a partition")
@@ -314,12 +368,16 @@ fn prompt_partition(feedback: &Feedback, theme: Box<dyn Theme>, topic: &String, 
         .default(0)
         .max_length(1 + 12) // "all partitions" and first 12 partitions
         .interact()
-        .unwrap() as i32 - 1;
+        .unwrap() as i32
+        - 1;
 
     if partition == -1 {
         Ok((TopicOrPartition::Topic(topic.clone()), num_partitions))
     } else {
-        Ok((TopicOrPartition::TopicPartition(topic.clone(), partition as usize), num_partitions))
+        Ok((
+            TopicOrPartition::TopicPartition(topic.clone(), partition as usize),
+            num_partitions,
+        ))
     }
 }
 
@@ -327,11 +385,18 @@ fn prompt_partition(feedback: &Feedback, theme: Box<dyn Theme>, topic: &String, 
 /// Looks up the number of partitions for given topic in the Kafka cluster.
 /// If topic does not exist, it prompts the user to select a topic.
 ///
-pub async fn verify_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, feedback: &Feedback) -> Result<(TopicOrPartition, usize)>
+pub async fn verify_topic_or_partition<Ctx>(
+    consumer: &StreamConsumer<Ctx>,
+    topic_or_partition: &TopicOrPartition,
+    feedback: &Feedback,
+) -> Result<(TopicOrPartition, usize)>
 where
     Ctx: KiekContext + 'static,
 {
-    feedback.info("Fetching", format!("number of partitions of {}", topic_or_partition.topic()));
+    feedback.info(
+        "Fetching",
+        format!("number of partitions of {}", topic_or_partition.topic()),
+    );
 
     let num_partitions = fetch_number_of_partitions(consumer, topic_or_partition.topic()).await?;
 
@@ -354,41 +419,45 @@ where
 /// If a partition is given and valid, it assigns it to the consumer with given offset configuration.
 /// If a topic is given, it assigns all partitions to the consumer with given offset configuration.
 ///
-pub async fn assign_topic_or_partition<Ctx>(consumer: &StreamConsumer<Ctx>, topic_or_partition: &TopicOrPartition, start_offset: StartOffset, feedback: &Feedback) -> Result<()>
+pub async fn assign_topic_or_partition<Ctx>(
+    consumer: &StreamConsumer<Ctx>,
+    topic_or_partition: &TopicOrPartition,
+    start_offset: StartOffset,
+    feedback: &Feedback,
+) -> Result<()>
 where
     Ctx: KiekContext + 'static,
 {
-    let (topic_or_partition, num_partitions) = verify_topic_or_partition(consumer, topic_or_partition, feedback).await?;
+    let (topic_or_partition, num_partitions) =
+        verify_topic_or_partition(consumer, topic_or_partition, feedback).await?;
 
     let topic = topic_or_partition.topic();
 
     let offset = offset_for(start_offset);
 
-    let topic_partition_list: TopicPartitionList =
-        match topic_or_partition {
-            TopicOrPartition::Topic(_) => {
-                let partition_offsets: HashMap<(String, i32), Offset> =
-                    (0..num_partitions)
-                        .map(|partition| { ((topic.to_string(), partition as i32), offset) })
-                        .collect();
+    let topic_partition_list: TopicPartitionList = match topic_or_partition {
+        TopicOrPartition::Topic(_) => {
+            let partition_offsets: HashMap<(String, i32), Offset> = (0..num_partitions)
+                .map(|partition| ((topic.to_string(), partition as i32), offset))
+                .collect();
 
-                info!("Assigning all {num_partitions} partitions for {topic}.");
+            info!("Assigning all {num_partitions} partitions for {topic}.");
 
-                TopicPartitionList::from_topic_map(&partition_offsets)?
+            TopicPartitionList::from_topic_map(&partition_offsets)?
+        }
+        TopicOrPartition::TopicPartition(_, partition) => {
+            if partition > num_partitions {
+                return Err(KiekException::new(format!("Partition {partition} is out of range for {topic} with {num_partitions} partitions.")));
             }
-            TopicOrPartition::TopicPartition(_, partition) => {
-                if partition > num_partitions {
-                    return Err(KiekException::new(format!("Partition {partition} is out of range for {topic} with {num_partitions} partitions.")));
-                }
 
-                let partition_offsets: HashMap<(String, i32), Offset> =
-                    HashMap::from([((topic.to_string(), partition as i32), offset)]);
+            let partition_offsets: HashMap<(String, i32), Offset> =
+                HashMap::from([((topic.to_string(), partition as i32), offset)]);
 
-                info!("Assigning partition {partition} for {topic}.");
+            info!("Assigning partition {partition} for {topic}.");
 
-                TopicPartitionList::from_topic_map(&partition_offsets)?
-            }
-        };
+            TopicPartitionList::from_topic_map(&partition_offsets)?
+        }
+    };
 
     consumer.assign(&topic_partition_list)?;
 
@@ -398,18 +467,20 @@ where
 ///
 /// Fetches the number of partitions for topic with given name.
 ///
-async fn fetch_number_of_partitions<Ctx>(consumer: &StreamConsumer<Ctx>, topic: &str) -> Result<Option<usize>>
+async fn fetch_number_of_partitions<Ctx>(
+    consumer: &StreamConsumer<Ctx>,
+    topic: &str,
+) -> Result<Option<usize>>
 where
     Ctx: KiekContext + 'static,
 {
     let metadata = map_errors(consumer, consumer.fetch_metadata(Some(topic), TIMEOUT)).await?;
 
     match metadata.topics().first() {
-        Some(topic_metadata) if !topic_metadata.partitions().is_empty() =>
-            Ok(Some(topic_metadata.partitions().len())),
-        _ => {
-            Ok(None)
+        Some(topic_metadata) if !topic_metadata.partitions().is_empty() => {
+            Ok(Some(topic_metadata.partitions().len()))
         }
+        _ => Ok(None),
     }
 }
 
@@ -433,7 +504,11 @@ pub fn partition_for_key(key: &str, partitions: usize) -> usize {
 ///
 /// Format a Kafka record timestamp for display
 ///
-pub fn format_timestamp(timestamp: &Timestamp, start_date: &DateTime<Local>, highlighting: &Highlighting) -> Option<String> {
+pub fn format_timestamp(
+    timestamp: &Timestamp,
+    start_date: &DateTime<Local>,
+    highlighting: &Highlighting,
+) -> Option<String> {
     match timestamp {
         Timestamp::NotAvailable => None,
         Timestamp::CreateTime(ms) => format_timestamp_millis(*ms, start_date, highlighting),
@@ -441,17 +516,26 @@ pub fn format_timestamp(timestamp: &Timestamp, start_date: &DateTime<Local>, hig
     }
 }
 
-fn format_timestamp_millis(ms: i64, start_date: &DateTime<Local>, highlighting: &Highlighting) -> Option<String> {
-    chrono::DateTime::from_timestamp_millis(ms)
-        .map(|dt| {
-            let local_time = dt.with_timezone(&Local);
-            let formatted = local_time.format("%Y-%m-%d %H:%M:%S%.3f");
+fn format_timestamp_millis(
+    ms: i64,
+    start_date: &DateTime<Local>,
+    highlighting: &Highlighting,
+) -> Option<String> {
+    chrono::DateTime::from_timestamp_millis(ms).map(|dt| {
+        let local_time = dt.with_timezone(&Local);
+        let formatted = local_time.format("%Y-%m-%d %H:%M:%S%.3f");
 
-            let after_start = start_date.signed_duration_since(dt).num_milliseconds() < 0;
-            let same_day = start_date.date_naive() == dt.date_naive();
-            let style = if after_start { highlighting.bold } else if same_day { highlighting.plain } else { highlighting.dimmed };
-            format!("{style}{formatted}{style:#}")
-        })
+        let after_start = start_date.signed_duration_since(dt).num_milliseconds() < 0;
+        let same_day = start_date.date_naive() == dt.date_naive();
+        let style = if after_start {
+            highlighting.bold
+        } else if same_day {
+            highlighting.plain
+        } else {
+            highlighting.dimmed
+        };
+        format!("{style}{formatted}{style:#}")
+    })
 }
 
 /// Formats the bootstrap servers for the log output with ellipsis for more than one broker
@@ -462,7 +546,7 @@ impl<'a> std::fmt::Display for FormatBootstrapServers<'a> {
         let mut split = self.0.split(',');
         match split.next() {
             Some(first) => write!(f, "{}", first)?,
-            None => return Ok(())
+            None => return Ok(()),
         }
         if split.next().is_some() {
             write!(f, ", ...")?
@@ -481,17 +565,32 @@ mod tests {
         assert_eq!(partition_for_key("control+e2e-zgddu3j-delete", 6), 5);
         assert_eq!(partition_for_key("control+e2e-6n304jn-delete", 6), 1);
 
-        assert_eq!(partition_for_key("834408c2-6061-7057-bdc1-320cc24c8873", 6), 3);
+        assert_eq!(
+            partition_for_key("834408c2-6061-7057-bdc1-320cc24c8873", 6),
+            3
+        );
         assert_eq!(partition_for_key("control+e2e-bgrl0v-delete", 6), 0);
         assert_eq!(partition_for_key("control+e2e-5ijyt78-delete", 6), 5);
-        assert_eq!(partition_for_key("03b40832-b061-703d-4d68-895dee9e1f90", 6), 4);
+        assert_eq!(
+            partition_for_key("03b40832-b061-703d-4d68-895dee9e1f90", 6),
+            4
+        );
         assert_eq!(partition_for_key("control+e2e-86d8ra-delete", 6), 2);
         assert_eq!(partition_for_key("control+e2e-lhwcl2-delete", 6), 1);
     }
 
     #[test]
     fn test_format_bootstrap_servers() {
-        assert_eq!(format!("{}", FormatBootstrapServers(&"broker1:9092".to_string())), "broker1:9092");
-        assert_eq!(format!("{}", FormatBootstrapServers(&"broker1:9092,broker2:9092".to_string())), "broker1:9092, ...");
+        assert_eq!(
+            format!("{}", FormatBootstrapServers(&"broker1:9092".to_string())),
+            "broker1:9092"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                FormatBootstrapServers(&"broker1:9092,broker2:9092".to_string())
+            ),
+            "broker1:9092, ..."
+        );
     }
 }
