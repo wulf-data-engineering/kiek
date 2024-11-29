@@ -17,7 +17,10 @@ with syntax highlighting in a **human-readable format**.
 
 - Integration Testing
 - CI/CD
-- Publish to homebrew
+- Publish to homebrew with auto complete
+  - https://github.com/go-task/homebrew-tap/blob/main/Formula/go-task.rb
+  - https://github.com/orgs/Homebrew/discussions/3709
+  - https://unix.stackexchange.com/questions/126785/zsh-completion-of-brew-formulas
 
 ### Increment Capabilities
 

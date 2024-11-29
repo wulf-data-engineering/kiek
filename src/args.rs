@@ -5,7 +5,7 @@ use crate::highlight::Highlighting;
 use crate::kafka::{StartOffset, TopicOrPartition, DEFAULT_BROKER_STRING};
 use crate::Result;
 use clap::error::ErrorKind;
-use clap::{CommandFactory, Parser};
+use clap::{CommandFactory, Parser, ValueHint};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
@@ -247,12 +247,12 @@ impl Args {
         if self.earliest {
             StartOffset::Earliest
         } else if self.latest {
-            StartOffset::Latest(0)
+            StartOffset::Latest
         } else {
             match &self.offset {
                 Some(offset) => offset.clone(),
                 None if is_local(&self.bootstrap_servers()) => StartOffset::Earliest,
-                None => StartOffset::Latest(0),
+                None => StartOffset::Latest,
             }
         }
     }
@@ -294,13 +294,13 @@ impl FromStr for StartOffset {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "earliest" | "beginning" => Ok(StartOffset::Earliest),
-            "latest" | "end" => Ok(StartOffset::Latest(0)),
+            "latest" | "end" => Ok(StartOffset::Latest),
             s => {
                 let offset: i64 = s.parse().map_err(|_| INVALID_OFFSET)?;
                 if offset >= 0 {
                     Err(INVALID_OFFSET.to_string())
                 } else {
-                    Ok(StartOffset::Latest(-offset))
+                    Ok(StartOffset::Relative(-offset))
                 }
             }
         }
@@ -486,7 +486,7 @@ mod tests {
             Some("arn:aws:iam::123456789012:role/test-role".to_string())
         );
         assert!(!args.verbose);
-        assert_eq!(args.offset, Some(StartOffset::Latest(3)));
+        assert_eq!(args.offset, Some(StartOffset::Relative(3)));
     }
 
     #[tokio::test]
@@ -665,10 +665,10 @@ mod tests {
             StartOffset::from_str("beginning"),
             Ok(StartOffset::Earliest)
         );
-        assert_eq!(StartOffset::from_str("latest"), Ok(StartOffset::Latest(0)));
-        assert_eq!(StartOffset::from_str("end"), Ok(StartOffset::Latest(0)));
-        assert_eq!(StartOffset::from_str("-1"), Ok(StartOffset::Latest(1)));
-        assert_eq!(StartOffset::from_str("-10"), Ok(StartOffset::Latest(10)));
+        assert_eq!(StartOffset::from_str("latest"), Ok(StartOffset::Latest));
+        assert_eq!(StartOffset::from_str("end"), Ok(StartOffset::Latest));
+        assert_eq!(StartOffset::from_str("-1"), Ok(StartOffset::Relative(1)));
+        assert_eq!(StartOffset::from_str("-10"), Ok(StartOffset::Relative(10)));
         assert_eq!(StartOffset::from_str("0"), Err(INVALID_OFFSET.to_string()));
         assert_eq!(StartOffset::from_str("1"), Err(INVALID_OFFSET.to_string()));
         assert_eq!(

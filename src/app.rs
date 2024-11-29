@@ -1,3 +1,4 @@
+use std::io;
 use crate::args::{Args, Authentication, Password};
 use crate::aws::create_credentials_provider;
 use crate::context::KiekContext;
@@ -12,6 +13,7 @@ use crate::kafka::{
 };
 use crate::payload::{format_payload, parse_payload};
 use crate::{kafka, Result};
+use clap::CommandFactory;
 use log::{debug, error, info, trace, LevelFilter};
 use rdkafka::consumer::{ConsumerContext, StreamConsumer};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
@@ -68,7 +70,7 @@ async fn setup(args: Args) -> Result<()> {
         args.region.clone(),
         args.role_arn.clone(),
     )
-    .await;
+        .await;
 
     let glue_schema_registry_facade =
         GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
@@ -83,7 +85,7 @@ async fn setup(args: Args) -> Result<()> {
                 args.no_ssl,
                 &feedback,
             )
-            .await?;
+                .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
         _ => {
@@ -93,7 +95,7 @@ async fn setup(args: Args) -> Result<()> {
                 credentials,
                 args.no_ssl,
             )
-            .await?;
+                .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
     }

@@ -23,6 +23,7 @@ use rdkafka::topic_partition_list::TopicPartitionList;
 use rdkafka::{Offset, Timestamp};
 use std::collections::HashMap;
 use std::time::Duration;
+use clap::ValueEnum;
 use termion::clear;
 
 pub(crate) const DEFAULT_PORT: i32 = 9092;
@@ -168,10 +169,12 @@ impl TopicOrPartition {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, ValueEnum)]
 pub(crate) enum StartOffset {
     Earliest,
-    Latest(i64),
+    Latest,
+    #[value(skip = true)]
+    Relative(i64),
 }
 
 ///
@@ -200,9 +203,9 @@ where
         TopicOrPartition::TopicPartition(_, configured_partition) => {
             if partition != configured_partition {
                 feedback.warning(format!("Key {bold}{key}{bold:#} would be expected in partition {success}{partition}{success:#} with default partitioning, not in configured partition {error}{configured_partition}{error:#}.",
-                                             bold = feedback.highlighting.bold,
-                                             success = feedback.highlighting.success,
-                                             error = feedback.highlighting.error))
+                                         bold = feedback.highlighting.bold,
+                                         success = feedback.highlighting.success,
+                                         error = feedback.highlighting.error))
             }
             configured_partition
         }
@@ -487,8 +490,8 @@ where
 fn offset_for(start_offset: StartOffset) -> Offset {
     match start_offset {
         StartOffset::Earliest => Offset::Beginning,
-        StartOffset::Latest(0) => Offset::End,
-        StartOffset::Latest(offset) => Offset::OffsetTail(offset),
+        StartOffset::Latest => Offset::End,
+        StartOffset::Relative(offset) => Offset::OffsetTail(offset),
     }
 }
 
