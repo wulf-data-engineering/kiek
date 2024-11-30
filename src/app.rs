@@ -179,7 +179,7 @@ where
                     _ => {}
                 }
 
-                let value = parse_payload(message.payload(), &glue_schema_registry_facade).await;
+                let value = parse_payload(message.payload(), &glue_schema_registry_facade).await?;
                 let value = format_payload(&value, &feedback.highlighting);
 
                 let partition_style = feedback.highlighting.partition(message.partition());
