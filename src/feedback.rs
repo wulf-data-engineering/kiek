@@ -55,11 +55,13 @@ impl Feedback {
     /// Print a warning message that is not overwritten by the next output.
     ///
     pub(crate) fn warning<S: Into<String>>(&self, message: S) {
+        let message = message.into();
+        warn!("{}", message);
         if self.interactive {
             println!(
                 "{}{style}warning{style:#}: {}",
                 clear::CurrentLine,
-                message.into(),
+                message,
                 style = self.highlighting.warning
             );
         }

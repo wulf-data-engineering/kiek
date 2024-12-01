@@ -5,7 +5,7 @@ use crate::highlight::Highlighting;
 use crate::kafka::{StartOffset, TopicOrPartition, DEFAULT_BROKER_STRING};
 use crate::Result;
 use clap::error::ErrorKind;
-use clap::{CommandFactory, Parser, ValueHint};
+use clap::{CommandFactory, Parser};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
@@ -152,7 +152,7 @@ impl Args {
     #[cfg(test)]
     async fn try_validated_from<I, T>(itr: I) -> Result<Self>
     where
-        I: IntoIterator<Item = T>,
+        I: IntoIterator<Item=T>,
         T: Into<std::ffi::OsString> + Clone,
     {
         let args = Args::try_parse_from(itr)?;
@@ -497,8 +497,8 @@ mod tests {
             "--offset=latest",
             "--offset=earliest"
         ])
-        .await
-        .is_err());
+            .await
+            .is_err());
         assert!(
             Args::try_validated_from(["kiek", "test-topic", "--latest", "--earliest"])
                 .await
@@ -510,8 +510,8 @@ mod tests {
             "--offset=earliest",
             "--earliest"
         ])
-        .await
-        .is_err());
+            .await
+            .is_err());
         assert!(
             Args::try_validated_from(["kiek", "test-topic", "--offset=-1", "--latest"])
                 .await

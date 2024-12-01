@@ -98,24 +98,24 @@ mod tests {
             &f,
         );
 
-        assert_eq!(parse_payload(None, &facade).await, Ok(Payload::Null));
+        assert_eq!(parse_payload(None, &facade).await.unwrap(), Payload::Null);
         assert_eq!(
-            parse_payload(Some(&[]), &facade).await,
-            Ok(Payload::String("".to_string()))
+            parse_payload(Some(&[]), &facade).await.unwrap(),
+            Payload::String("".to_string())
         );
         assert_eq!(
-            parse_payload(Some("string".as_bytes()), &facade).await,
-            Ok(Payload::String("string".to_string()))
+            parse_payload(Some("string".as_bytes()), &facade).await.unwrap(),
+            Payload::String("string".to_string())
         );
         assert_eq!(
-            parse_payload(Some("\"string\"".as_bytes()), &facade).await,
-            Ok(Payload::Json(serde_json::Value::String("string".into())))
+            parse_payload(Some("\"string\"".as_bytes()), &facade).await.unwrap(),
+            Payload::Json(serde_json::Value::String("string".into()))
         );
 
         let some_bytes = Uuid::new_v4().as_bytes().to_vec();
         assert_eq!(
-            parse_payload(Some(&some_bytes), &facade).await,
-            Ok(Payload::Unknown(String::from_utf8_lossy(&some_bytes).to_string()))
+            parse_payload(Some(&some_bytes), &facade).await.unwrap(),
+            Payload::Unknown(String::from_utf8_lossy(&some_bytes).to_string())
         );
     }
 

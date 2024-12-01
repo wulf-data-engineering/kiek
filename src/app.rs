@@ -1,4 +1,3 @@
-use std::io;
 use crate::args::{Args, Authentication, Password};
 use crate::aws::create_credentials_provider;
 use crate::context::KiekContext;
@@ -13,7 +12,6 @@ use crate::kafka::{
 };
 use crate::payload::{format_payload, parse_payload};
 use crate::{kafka, Result};
-use clap::CommandFactory;
 use log::{debug, error, info, trace, LevelFilter};
 use rdkafka::consumer::{ConsumerContext, StreamConsumer};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
@@ -24,12 +22,12 @@ use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::time::Duration;
 
-pub async fn run() -> Result<()> {
+pub async fn start() -> Result<()> {
     let args = Args::validated().await;
 
     configure_logging(args.verbose, args.colors());
 
-    match setup(args).await {
+    match run(args).await {
         Err(e) => Args::fail(e),
         Ok(_) => Ok(()),
     }
@@ -38,7 +36,7 @@ pub async fn run() -> Result<()> {
 ///
 /// Set up the Kafka consumer, create schema registry facade and continue with connecting.
 ///
-async fn setup(args: Args) -> Result<()> {
+async fn run(args: Args) -> Result<()> {
     debug!("{:?}", args);
 
     let highlighting = args.highlighting();
@@ -195,6 +193,7 @@ where
                         .unwrap_or("".to_string());
 
                 feedback.clear();
+
                 println!("{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}");
             }
         }

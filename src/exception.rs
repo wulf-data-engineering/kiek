@@ -100,7 +100,7 @@ mod tests {
 
         assert_eq!(
             KiekException::user_friendly("[thrd:sasl_ssl://127.0.0.1:9092/bootstrap]: sasl_ssl://127.0.0.1:9092/bootstrap: SSL handshake failed: Disconnected: connecting to a PLAINTEXT broker listener? (after 2ms in state SSL_HANDSHAKE)"),
-            "SSL handshake failed: Disconnected: connecting to a PLAINTEXT broker listener?");
+            "SSL handshake failed: If you connect to a PLAINTEXT broker listener use --no-ssl.");
 
         assert_eq!(
             KiekException::user_friendly("[thrd:sasl_ssl://127.0.0.1:9092/bootstrap]: sasl_ssl://127.0.0.1:9092/bootstrap: kapott (after 2ms in state SSL_HANDSHAKE)"),

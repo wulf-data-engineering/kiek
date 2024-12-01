@@ -17,6 +17,6 @@ pub(crate) type CoreResult<T> = core::result::Result<T, Box<dyn Error>>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    app::run().await?;
+    app::start().await?;
     Ok(())
 }

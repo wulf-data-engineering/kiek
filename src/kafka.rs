@@ -23,7 +23,6 @@ use rdkafka::topic_partition_list::TopicPartitionList;
 use rdkafka::{Offset, Timestamp};
 use std::collections::HashMap;
 use std::time::Duration;
-use clap::ValueEnum;
 use termion::clear;
 
 pub(crate) const DEFAULT_PORT: i32 = 9092;
@@ -169,11 +168,10 @@ impl TopicOrPartition {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, ValueEnum)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum StartOffset {
     Earliest,
     Latest,
-    #[value(skip = true)]
     Relative(i64),
 }
 
@@ -585,13 +583,13 @@ mod tests {
     #[test]
     fn test_format_bootstrap_servers() {
         assert_eq!(
-            format!("{}", FormatBootstrapServers(&"broker1:9092".to_string())),
+            format!("{}", FormatBootstrapServers("broker1:9092")),
             "broker1:9092"
         );
         assert_eq!(
             format!(
                 "{}",
-                FormatBootstrapServers(&"broker1:9092,broker2:9092".to_string())
+                FormatBootstrapServers("broker1:9092,broker2:9092")
             ),
             "broker1:9092, ..."
         );

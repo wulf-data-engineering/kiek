@@ -15,6 +15,7 @@ with syntax highlighting in a **human-readable format**.
 
 ### Publish
 
+- Retry/Reconnect on Broker Transport Failure without captured failure
 - Integration Testing
 - CI/CD
 - Publish to homebrew with auto complete
@@ -25,7 +26,12 @@ with syntax highlighting in a **human-readable format**.
 ### Increment Capabilities
 
 - Services
+  - Support OAuth (SASL OAUTHBEARER) via --token
   - Support (Confluent) Schema Registry
+    - Basic Auth (SASL PLAIN/SCRAM)
+    - OAuth (SASL OAUTHBEARER)
+    - Support non-string keys
+    - Add overrides for security settings for Schema Registry
 - UX
   - Failing Gracefully and Explaining Errors: schema lookup failure
   - Indicate reached head of topic with --earliest
