@@ -28,7 +28,7 @@ clap_complete = "*"
 rdkafka = { version = "0.37.0", features = ["default", "ssl"] }
 aws-msk-iam-sasl-signer = "*"
 uuid = { version = "*", features = ["v4"] }
-avro-rs = "*"
+apache-avro = "*"
 serde_json = "*"
 murmur2 = "*"
 levenshtein = "*"
@@ -36,3 +36,4 @@ dialoguer = "*"
 reachable = { version = "*", features = ["default"] }
 aws-credential-types = "*"
 termion = "*"
+bigdecimal = "*"

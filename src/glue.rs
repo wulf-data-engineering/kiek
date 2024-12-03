@@ -1,6 +1,6 @@
 use crate::feedback::Feedback;
 use crate::Result;
-use avro_rs::Schema;
+use apache_avro::Schema;
 use aws_sdk_glue::config::BehaviorVersion;
 use aws_sdk_glue::Client;
 use aws_sdk_sts::config::SharedCredentialsProvider;
@@ -62,12 +62,12 @@ pub struct GlueMessage<'a> {
 pub async fn decode_glue_message<'a>(
     message: GlueMessage<'a>,
     glue_schema_registry_facade: &GlueSchemaRegistryFacade,
-) -> Result<avro_rs::types::Value> {
+) -> Result<apache_avro::types::Value> {
     let schema = glue_schema_registry_facade
         .get_schema(&message.schema_id)
         .await?;
     let value =
-        avro_rs::from_avro_datum(&schema, &mut std::io::Cursor::new(message.payload), None)?;
+        apache_avro::from_avro_datum(&schema, &mut std::io::Cursor::new(message.payload), None)?;
     Ok(value)
 }
 
@@ -122,11 +122,11 @@ impl GlueSchemaRegistryFacade {
             .send()
             .await?;
 
-        info!("Parsing schema version {}.", schema_id);
-
         let schema_definition = schema_version_output
             .schema_definition
             .ok_or("Schema definition not found")?;
+
+        info!("Parsing schema version {schema_id}:\n{schema_definition}");
 
         let schema = Schema::parse_str(&schema_definition)?;
 

@@ -1,4 +1,4 @@
-use avro_rs::types::Value as AvroValue;
+use apache_avro::types::Value as AvroValue;
 use chrono::{DateTime, Datelike, NaiveDate};
 use clap::builder::styling::{AnsiColor, Color, Style};
 use dialoguer::theme::{ColorfulTheme, SimpleTheme, Theme};
@@ -120,7 +120,7 @@ pub(crate) fn write_avro_value(
         ),
         AvroValue::Map(map) => write_map(f, map.iter(), write_avro_value, highlighting),
         AvroValue::Enum(_, symbol) => write_string_value(f, symbol, highlighting),
-        AvroValue::Union(value) => write_avro_value(f, value, highlighting),
+        AvroValue::Union(_, value) => write_avro_value(f, value, highlighting),
         AvroValue::Array(array) => write_array(f, array.iter(), write_avro_value, highlighting),
         AvroValue::Fixed(_, bytes) => write_string_value(f, format!("{:?}", bytes), highlighting),
         AvroValue::String(string) => write_string_value(f, string, highlighting),
@@ -129,6 +129,7 @@ pub(crate) fn write_avro_value(
         AvroValue::Long(long) => write_number(f, long, highlighting),
         AvroValue::Float(float) => write_number(f, float, highlighting),
         AvroValue::Double(double) => write_number(f, double, highlighting),
+        AvroValue::BigDecimal(big_decimal) => write_number(f, big_decimal, highlighting),
         AvroValue::Boolean(boolean) => write_keyword(f, boolean, highlighting),
         AvroValue::Null => write_keyword(f, "null", highlighting),
         AvroValue::Date(date) => write_string_value(
@@ -151,6 +152,26 @@ pub(crate) fn write_avro_value(
         AvroValue::TimestampMicros(ts) => write_string_value(
             f,
             DateTime::from_timestamp_micros(*ts).unwrap().to_string(),
+            highlighting,
+        ),
+        AvroValue::TimestampNanos(ts) => write_string_value(
+            f,
+            DateTime::from_timestamp_nanos(*ts).to_string(),
+            highlighting,
+        ),
+        AvroValue::LocalTimestampMillis(ts) => write_string_value(
+            f,
+            DateTime::from_timestamp_millis(*ts).unwrap().to_string(),
+            highlighting,
+        ),
+        AvroValue::LocalTimestampMicros(ts) => write_string_value(
+            f,
+            DateTime::from_timestamp_micros(*ts).unwrap().to_string(),
+            highlighting,
+        ),
+        AvroValue::LocalTimestampNanos(ts) => write_string_value(
+            f,
+            DateTime::from_timestamp_nanos(*ts).to_string(),
             highlighting,
         ),
         AvroValue::Duration(duration) => {
@@ -211,7 +232,7 @@ fn write_entries<'a, V: 'a, I, F>(
     highlighting: &Highlighting,
 ) -> std::fmt::Result
 where
-    I: Iterator<Item = V>,
+    I: Iterator<Item=V>,
     F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
     f.write_str(prefix)?;
@@ -234,7 +255,7 @@ fn write_array<'a, V: 'a, I, F>(
     highlighting: &Highlighting,
 ) -> std::fmt::Result
 where
-    I: Iterator<Item = &'a V>,
+    I: Iterator<Item=&'a V>,
     F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
     write_entries(
@@ -254,7 +275,7 @@ fn write_map<'a, V: 'a, I, F>(
     highlighting: &Highlighting,
 ) -> std::fmt::Result
 where
-    I: Iterator<Item = (&'a String, &'a V)>,
+    I: Iterator<Item=(&'a String, &'a V)>,
     F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
     write_entries(
@@ -279,7 +300,8 @@ lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avro_rs::{Days, Duration, Millis, Months};
+    use apache_avro::{Days, Duration, Millis, Months};
+    use std::str::FromStr;
     struct JsonFormatting {
         value: JsonValue,
         highlighting: Highlighting,
@@ -379,6 +401,16 @@ mod tests {
         let last_ansi_index = formatted.rfind("\u{001B}").unwrap();
         assert_eq!(last_reset_index, last_ansi_index);
 
+        let value = AvroValue::BigDecimal(bigdecimal::BigDecimal::from_str("1.23000000004").unwrap());
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                highlighting: Highlighting::plain()
+            }
+        );
+        assert_eq!(formatted, "1.23000000004");
+
         let value = AvroValue::Date(4);
         let formatted = format!(
             "{}",
@@ -450,7 +482,7 @@ mod tests {
         );
         assert_eq!(
             formatted,
-            "\"Duration { months: Months(U32(1)), days: Days(U32(2)), millis: Millis(U32(3)) }\""
+            "\"Duration { months: Months(1), days: Days(2), millis: Millis(3) }\""
         );
     }
 }

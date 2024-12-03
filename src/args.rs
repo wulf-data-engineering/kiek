@@ -14,6 +14,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::io::IsTerminal;
 use std::net::IpAddr;
 use std::str::FromStr;
+use termion::clear;
 
 #[derive(Parser, Debug)]
 /// kiek (/ˈkiːk/ - Nothern German for Look!) helps you to look into Kafka topics, especially, if
@@ -185,6 +186,7 @@ impl Args {
     ///
     pub fn fail(e: Box<dyn Error>) -> ! {
         let mut cmd = Self::command();
+        println!("{}", clear::CurrentLine);
         cmd.error(ErrorKind::Io, e.to_string()).exit();
     }
 

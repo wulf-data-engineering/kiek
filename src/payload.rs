@@ -8,7 +8,7 @@ pub enum Payload {
     Null,
     String(String),
     Json(serde_json::Value),
-    Avro(avro_rs::types::Value),
+    Avro(apache_avro::types::Value),
     Unknown(String),
 }
 
@@ -142,7 +142,7 @@ mod tests {
             format!(
                 "{}",
                 format_payload(
-                    &Payload::Avro(avro_rs::types::Value::String("string".into())),
+                    &Payload::Avro(apache_avro::types::Value::String("string".into())),
                     &h
                 )
             ),
