@@ -10,6 +10,8 @@ mod msk_iam_context;
 mod payload;
 
 use std::error::Error;
+use std::io;
+use std::io::Write;
 
 pub type Result<T> = core::result::Result<T, Box<dyn Error + Send + Sync>>;
 pub(crate) type CoreResult<T> = core::result::Result<T, Box<dyn Error>>;
@@ -37,6 +39,7 @@ use reachable::TcpTarget;
 use simple_logger::SimpleLogger;
 use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use futures::FutureExt;
 
@@ -175,28 +178,33 @@ where
         // Await the next message which is most likely the beginning of a new batch
         let awaited_record = consumer.recv().await;
 
-        received_messages += process_record(&args, awaited_record, &glue_schema_registry_facade, &feedback, &start_date).await?;
+        // Buffer the output of the batch
+        let buffer = Arc::new(Mutex::new(Vec::<u8>::with_capacity(128 * 1024)));
 
-        // As long as there are messages in the batch, process them immediately without flushing the terminal
+        received_messages += process_record(&args, buffer.clone(), awaited_record, &glue_schema_registry_facade, &feedback, &start_date).await?;
+
+        // As long as there are messages in the batch, process them immediately without writing to the terminal
         loop {
             match consumer.recv().now_or_never() {
                 None => break,
                 Some(record) => {
-                    received_messages += process_record(&args, record, &glue_schema_registry_facade, &feedback, &start_date).await?;
+                    received_messages += process_record(&args, buffer.clone(), record, &glue_schema_registry_facade, &feedback, &start_date).await?;
                 }
             }
         }
 
+        io::stdout().write_all(buffer.lock().unwrap().as_slice())?;
+
         // If scanning for a key print the no. of consumed messages to indicate consumption
-        if args.key.is_some() && received_messages > 0 {
+        if received_messages > 0 && args.key.is_some() {
             feedback.info("Consumed", format!("{received_messages} messages"));
         }
 
-        // TODO: flush the terminal
+        io::stdout().flush()?;
     }
 }
 
-async fn process_record<'a>(args: &Args, record: core::result::Result<BorrowedMessage<'a>, KafkaError>, glue_schema_registry_facade: &GlueSchemaRegistryFacade, feedback: &&Feedback, start_date: &DateTime<Local>) -> Result<usize> {
+async fn process_record<'a>(args: &Args, buffer: Arc<Mutex<Vec<u8>>>, record: core::result::Result<BorrowedMessage<'a>, KafkaError>, glue_schema_registry_facade: &GlueSchemaRegistryFacade, feedback: &&Feedback, start_date: &DateTime<Local>) -> Result<usize> {
     match record {
         Err(KafkaError::MessageConsumption(RDKafkaErrorCode::GroupAuthorizationFailed)) => {
             // This error is expected when the consumer group is not authorized to commit offsets which isn't supported anyway
@@ -236,7 +244,7 @@ async fn process_record<'a>(args: &Args, record: core::result::Result<BorrowedMe
 
             feedback.clear();
 
-            println!("{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}");
+            writeln!(buffer.lock().unwrap(), "{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}")?;
             Ok(1)
         }
     }
