@@ -1,3 +1,19 @@
+mod args;
+mod aws;
+mod context;
+mod exception;
+mod feedback;
+mod glue;
+mod highlight;
+mod kafka;
+mod msk_iam_context;
+mod payload;
+
+use std::error::Error;
+
+pub type Result<T> = core::result::Result<T, Box<dyn Error + Send + Sync>>;
+pub(crate) type CoreResult<T> = core::result::Result<T, Box<dyn Error>>;
+
 use crate::args::{Args, Authentication, Password};
 use crate::aws::create_credentials_provider;
 use crate::context::KiekContext;
@@ -11,7 +27,6 @@ use crate::kafka::{
     DEFAULT_PORT,
 };
 use crate::payload::{format_payload, parse_payload};
-use crate::{kafka, Result};
 use log::{debug, error, info, trace, LevelFilter};
 use rdkafka::consumer::{ConsumerContext, StreamConsumer};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
