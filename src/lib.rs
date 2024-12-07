@@ -27,15 +27,18 @@ use crate::kafka::{
     DEFAULT_PORT,
 };
 use crate::payload::{format_payload, parse_payload};
+use chrono::{DateTime, Local};
 use log::{debug, error, info, trace, LevelFilter};
 use rdkafka::consumer::{ConsumerContext, StreamConsumer};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
+use rdkafka::message::BorrowedMessage;
 use rdkafka::Message;
 use reachable::TcpTarget;
 use simple_logger::SimpleLogger;
 use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::time::Duration;
+use futures::FutureExt;
 
 pub async fn start() -> Result<()> {
     let args = Args::validated().await;
@@ -169,48 +172,72 @@ where
     feedback.info("Consuming", "messages");
 
     loop {
-        match consumer.recv().await {
-            Err(KafkaError::MessageConsumption(RDKafkaErrorCode::GroupAuthorizationFailed)) => {
-                // This error is expected when the consumer group is not authorized to commit offsets which isn't supported anyway
-                trace!("Consumer group is not authorized to commit offsets.");
-            }
-            Err(other) => {
-                error!("Received error during polling: {:?}", other);
-                return Err(other.into());
-            }
+        // Await the next message which is most likely the beginning of a new batch
+        let awaited_record = consumer.recv().await;
 
-            Ok(message) => {
-                received_messages += 1;
-                let key = String::from_utf8_lossy(message.key().unwrap_or(&[])).to_string();
+        received_messages += process_record(&args, awaited_record, &glue_schema_registry_facade, &feedback, &start_date).await?;
 
-                // Skip messages that don't match the key if a key is scanned for
-                match &args.key {
-                    Some(search_key) if !search_key.eq(&key) => {
-                        feedback.info("Consumed", format!("{received_messages} messages"));
-                        continue;
-                    }
-                    _ => {}
+        // As long as there are messages in the batch, process them immediately without flushing the terminal
+        loop {
+            match consumer.recv().now_or_never() {
+                None => break,
+                Some(record) => {
+                    received_messages += process_record(&args, record, &glue_schema_registry_facade, &feedback, &start_date).await?;
                 }
-
-                let value = parse_payload(message.payload(), &glue_schema_registry_facade).await?;
-                let value = format_payload(&value, &feedback.highlighting);
-
-                let partition_style = feedback.highlighting.partition(message.partition());
-                let partition_style_bold = partition_style.bold();
-                let separator_style = partition_style.dimmed();
-
-                let topic = message.topic();
-                let partition = message.partition();
-                let offset = message.offset();
-
-                let timestamp =
-                    format_timestamp(&message.timestamp(), &start_date, &feedback.highlighting)
-                        .unwrap_or("".to_string());
-
-                feedback.clear();
-
-                println!("{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}");
             }
+        }
+
+        // If scanning for a key print the no. of consumed messages to indicate consumption
+        if args.key.is_some() && received_messages > 0 {
+            feedback.info("Consumed", format!("{received_messages} messages"));
+        }
+
+        // TODO: flush the terminal
+    }
+}
+
+async fn process_record<'a>(args: &Args, record: core::result::Result<BorrowedMessage<'a>, KafkaError>, glue_schema_registry_facade: &GlueSchemaRegistryFacade, feedback: &&Feedback, start_date: &DateTime<Local>) -> Result<usize> {
+    match record {
+        Err(KafkaError::MessageConsumption(RDKafkaErrorCode::GroupAuthorizationFailed)) => {
+            // This error is expected when the consumer group is not authorized to commit offsets which isn't supported anyway
+            trace!("Consumer group is not authorized to commit offsets.");
+            Ok(0)
+        }
+        Err(other) => {
+            error!("Received error during polling: {:?}", other);
+            Err(other.into())
+        }
+
+        Ok(message) => {
+            let key = String::from_utf8_lossy(message.key().unwrap_or(&[])).to_string();
+
+            // Skip messages that don't match the key if a key is scanned for
+            match &args.key {
+                Some(search_key) if !search_key.eq(&key) => {
+                    return Ok(1);
+                }
+                _ => {}
+            }
+
+            let value = parse_payload(message.payload(), glue_schema_registry_facade).await?;
+            let value = format_payload(&value, &feedback.highlighting);
+
+            let partition_style = feedback.highlighting.partition(message.partition());
+            let partition_style_bold = partition_style.bold();
+            let separator_style = partition_style.dimmed();
+
+            let topic = message.topic();
+            let partition = message.partition();
+            let offset = message.offset();
+
+            let timestamp =
+                format_timestamp(&message.timestamp(), start_date, &feedback.highlighting)
+                    .unwrap_or("".to_string());
+
+            feedback.clear();
+
+            println!("{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}");
+            Ok(1)
         }
     }
 }
