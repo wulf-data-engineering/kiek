@@ -37,3 +37,7 @@ reachable = { version = "*", features = ["default"] }
 aws-credential-types = "*"
 termion = "*"
 bigdecimal = "*"
+
+[dev-dependencies]
+assert_cmd = "*"
+predicates = "*"

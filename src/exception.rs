@@ -50,6 +50,8 @@ impl KiekException {
             "SASL authentication error: Access denied.".to_string()
         } else if fail.contains("Disconnected while requesting ApiVersion") {
             "Disconnected while requesting API version: Most likely the authentication mechanism is wrong and SSL is expected. Verify your -a, --authentication configuration.".to_string()
+        } else if fail.contains("SSL handshake failed: Disconnected: connecting to a PLAINTEXT broker listener?") {
+            "SSL handshake failed: If you connect to a PLAINTEXT broker listener use --no-ssl.".to_string()
         } else if fail.contains(
             "Unsupported SASL mechanism: broker's supported mechanisms: OAUTHBEARER,AWS_MSK_IAM",
         ) {
