@@ -15,7 +15,6 @@ with syntax highlighting in a **human-readable format**.
 
 ### Publish
 
-- Replace * dependency versions with dependabot
 - Publish as binary releases to Github
   - https://github.com/rustwasm/wasm-pack/blob/51e6351c28fbd40745719e6d4a7bf26dadd30c85/.travis.yml#L74-L91
 - Publish to homebrew with auto complete
