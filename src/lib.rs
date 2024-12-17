@@ -30,6 +30,7 @@ use crate::kafka::{
 };
 use crate::payload::{format_payload, parse_payload};
 use chrono::{DateTime, Local};
+use futures::FutureExt;
 use log::{debug, error, info, trace, LevelFilter};
 use rdkafka::consumer::{ConsumerContext, StreamConsumer};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
@@ -41,7 +42,6 @@ use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use futures::FutureExt;
 
 pub async fn start() -> Result<()> {
     let args = Args::validated().await;
@@ -89,7 +89,7 @@ async fn run(args: Args) -> Result<()> {
         args.region.clone(),
         args.role_arn.clone(),
     )
-        .await;
+    .await;
 
     let glue_schema_registry_facade =
         GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
@@ -104,7 +104,7 @@ async fn run(args: Args) -> Result<()> {
                 args.no_ssl,
                 &feedback,
             )
-                .await?;
+            .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
         _ => {
@@ -114,7 +114,7 @@ async fn run(args: Args) -> Result<()> {
                 credentials,
                 args.no_ssl,
             )
-                .await?;
+            .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
     }
@@ -181,14 +181,30 @@ where
         // Buffer the output of the batch
         let buffer = Arc::new(Mutex::new(Vec::<u8>::with_capacity(128 * 1024)));
 
-        received_messages += process_record(&args, buffer.clone(), awaited_record, &glue_schema_registry_facade, &feedback, &start_date).await?;
+        received_messages += process_record(
+            &args,
+            buffer.clone(),
+            awaited_record,
+            &glue_schema_registry_facade,
+            &feedback,
+            &start_date,
+        )
+        .await?;
 
         // As long as there are messages in the batch, process them immediately without writing to the terminal
         loop {
             match consumer.recv().now_or_never() {
                 None => break,
                 Some(record) => {
-                    received_messages += process_record(&args, buffer.clone(), record, &glue_schema_registry_facade, &feedback, &start_date).await?;
+                    received_messages += process_record(
+                        &args,
+                        buffer.clone(),
+                        record,
+                        &glue_schema_registry_facade,
+                        &feedback,
+                        &start_date,
+                    )
+                    .await?;
                 }
             }
         }
@@ -204,7 +220,14 @@ where
     }
 }
 
-async fn process_record<'a>(args: &Args, buffer: Arc<Mutex<Vec<u8>>>, record: core::result::Result<BorrowedMessage<'a>, KafkaError>, glue_schema_registry_facade: &GlueSchemaRegistryFacade, feedback: &&Feedback, start_date: &DateTime<Local>) -> Result<usize> {
+async fn process_record<'a>(
+    args: &Args,
+    buffer: Arc<Mutex<Vec<u8>>>,
+    record: core::result::Result<BorrowedMessage<'a>, KafkaError>,
+    glue_schema_registry_facade: &GlueSchemaRegistryFacade,
+    feedback: &&Feedback,
+    start_date: &DateTime<Local>,
+) -> Result<usize> {
     match record {
         Err(KafkaError::MessageConsumption(RDKafkaErrorCode::GroupAuthorizationFailed)) => {
             // This error is expected when the consumer group is not authorized to commit offsets which isn't supported anyway
