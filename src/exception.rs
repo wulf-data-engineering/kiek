@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_write() {
-        assert_eq!(format!("{}", KiekException::new("foo")), "foo");
+        assert_eq!(format!("{}", KiekException::new("foo")), "bar");
         assert_eq!(
             format!(
                 "{}",
