@@ -153,7 +153,7 @@ impl Args {
     #[cfg(test)]
     async fn try_validated_from<I, T>(itr: I) -> Result<Self>
     where
-        I: IntoIterator<Item=T>,
+        I: IntoIterator<Item = T>,
         T: Into<std::ffi::OsString> + Clone,
     {
         let args = Args::try_parse_from(itr)?;
@@ -499,8 +499,8 @@ mod tests {
             "--offset=latest",
             "--offset=earliest"
         ])
-            .await
-            .is_err());
+        .await
+        .is_err());
         assert!(
             Args::try_validated_from(["kiek", "test-topic", "--latest", "--earliest"])
                 .await
@@ -512,8 +512,8 @@ mod tests {
             "--offset=earliest",
             "--earliest"
         ])
-            .await
-            .is_err());
+        .await
+        .is_err());
         assert!(
             Args::try_validated_from(["kiek", "test-topic", "--offset=-1", "--latest"])
                 .await

@@ -1,7 +1,7 @@
 use crate::glue::{analyze_glue_message, decode_glue_message, GlueSchemaRegistryFacade};
 use crate::highlight::{write_avro_value, write_json_value, write_null, Highlighting};
-use std::fmt::Display;
 use crate::Result;
+use std::fmt::Display;
 
 #[derive(PartialEq, Debug)]
 pub enum Payload {
@@ -42,7 +42,9 @@ async fn parse_payload_bytes(
         let value = decode_glue_message(message, glue_schema_registry_facade).await?;
         Ok(Payload::Avro(value))
     } else {
-        Ok(Payload::Unknown(String::from_utf8_lossy(payload).to_string()))
+        Ok(Payload::Unknown(
+            String::from_utf8_lossy(payload).to_string(),
+        ))
     }
 }
 
@@ -61,7 +63,7 @@ pub(crate) struct PayloadFormatting<'a, 'b> {
     highlighting: &'b Highlighting,
 }
 
-impl<'a, 'b> Display for PayloadFormatting<'a, 'b> {
+impl Display for PayloadFormatting<'_, '_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self.payload {
             Payload::Null => write_null(f, self.highlighting),
@@ -104,11 +106,15 @@ mod tests {
             Payload::String("".to_string())
         );
         assert_eq!(
-            parse_payload(Some("string".as_bytes()), &facade).await.unwrap(),
+            parse_payload(Some("string".as_bytes()), &facade)
+                .await
+                .unwrap(),
             Payload::String("string".to_string())
         );
         assert_eq!(
-            parse_payload(Some("\"string\"".as_bytes()), &facade).await.unwrap(),
+            parse_payload(Some("\"string\"".as_bytes()), &facade)
+                .await
+                .unwrap(),
             Payload::Json(serde_json::Value::String("string".into()))
         );
 

@@ -232,7 +232,7 @@ fn write_entries<'a, V: 'a, I, F>(
     highlighting: &Highlighting,
 ) -> std::fmt::Result
 where
-    I: Iterator<Item=V>,
+    I: Iterator<Item = V>,
     F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
     f.write_str(prefix)?;
@@ -255,7 +255,7 @@ fn write_array<'a, V: 'a, I, F>(
     highlighting: &Highlighting,
 ) -> std::fmt::Result
 where
-    I: Iterator<Item=&'a V>,
+    I: Iterator<Item = &'a V>,
     F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
     write_entries(
@@ -275,7 +275,7 @@ fn write_map<'a, V: 'a, I, F>(
     highlighting: &Highlighting,
 ) -> std::fmt::Result
 where
-    I: Iterator<Item=(&'a String, &'a V)>,
+    I: Iterator<Item = (&'a String, &'a V)>,
     F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
 {
     write_entries(
@@ -401,7 +401,8 @@ mod tests {
         let last_ansi_index = formatted.rfind("\u{001B}").unwrap();
         assert_eq!(last_reset_index, last_ansi_index);
 
-        let value = AvroValue::BigDecimal(bigdecimal::BigDecimal::from_str("1.23000000004").unwrap());
+        let value =
+            AvroValue::BigDecimal(bigdecimal::BigDecimal::from_str("1.23000000004").unwrap());
         let formatted = format!(
             "{}",
             AvroFormatting {
