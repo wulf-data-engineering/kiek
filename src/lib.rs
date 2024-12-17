@@ -72,14 +72,7 @@ async fn run(args: Args) -> Result<()> {
 
     let bootstrap_servers = args.bootstrap_servers();
 
-
-
-
-
-
-
-
-                            feedback.info(
+    feedback.info(
         "Connecting",
         format!(
             "to Kafka cluster at {}",
