@@ -1,0 +1,46 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1 # v1 is allowed to push
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Building
+        run: cargo build
+      - name: Linting
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          cargo fmt -- --check
+          cargo check
+          cargo clippy -- -D warnings
+      - name: Fixing
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          cargo fmt
+          cargo fix --allow-dirty
+          cargo clippy --fix --allow-dirty
+      - name: Check for modified files
+        id: git-check
+        run: echo "modified=$(if git diff-index --quiet HEAD --; then echo "false"; else echo "true"; fi)" >> $GITHUB_OUTPUT
+      - name: Committing
+        if: github.event.pull_request.head.repo.full_name == github.repository && steps.git-check.outputs.modified == 'true'
+        run: |
+          git config --global user.name 'Christoph Wulf'
+          git config --global user.email 'christoph@wulf.technology'
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+          git commit -am "Format code and fix warnings"
+          git push
+      - name: Testing
+        run: cargo test --verbose
