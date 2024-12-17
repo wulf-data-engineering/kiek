@@ -41,3 +41,11 @@ bigdecimal = "0.4.7"
 [dev-dependencies]
 assert_cmd = "2.0.16"
 predicates = "3.1.2"
+
+[profile.ship]
+inherits = "release"
+strip = true # Omit debug symbols for panics in favor of smaller binary
+opt-level = "z" # Optimize for size: Kafka will be the bottleneck, not CPU
+panic = "abort" # Don't rewind the stack on panic to reduce binary size
+codegen-units = 1 # Reduce binary size by compiling all code in one unit
+lto = "fat" # Enable best link-time optimization to reduce binary size

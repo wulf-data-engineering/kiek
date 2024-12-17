@@ -29,10 +29,10 @@ with syntax highlighting in a **human-readable format**.
   - Support (Confluent) Schema Registry
     - Basic Auth (SASL PLAIN/SCRAM)
     - OAuth (SASL OAUTHBEARER)
-    - Support non-string keys
     - Add overrides for security settings for Schema Registry
+  - Support non-string keys
 - UX
-  - Retry/Reconnect on Broker Transport Failure without captured failure
+  - Retry/Reconnect on Broker Transport Failure without captured failure (<- thread yield, short sleep, next poll?)
   - Failing Gracefully and Explaining Errors: schema lookup failure
   - Indicate reached head of topic with --earliest
   - Topic Profiles / --env for environment profiles
