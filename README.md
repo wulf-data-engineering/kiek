@@ -15,13 +15,12 @@ with syntax highlighting in a **human-readable format**.
 
 ### Publish
 
-- Retry/Reconnect on Broker Transport Failure without captured failure
-- Integration Testing
-- CI/CD
+- Publish as binary releases to Github
+  - https://github.com/rustwasm/wasm-pack/blob/51e6351c28fbd40745719e6d4a7bf26dadd30c85/.travis.yml#L74-L91
 - Publish to homebrew with auto complete
-  - https://github.com/go-task/homebrew-tap/blob/main/Formula/go-task.rb
-  - https://github.com/orgs/Homebrew/discussions/3709
-  - https://unix.stackexchange.com/questions/126785/zsh-completion-of-brew-formulas
+  - https://github.com/BurntSushi/ripgrep/blob/31adff6f3c4bfefc9e77df40871f2989443e6827/pkg/brew/ripgrep-bin.rb
+  - https://rust-cli.github.io/book/in-depth/docs.html
+- More Integration Testing
 
 ### Increment Capabilities
 
@@ -33,6 +32,7 @@ with syntax highlighting in a **human-readable format**.
     - Support non-string keys
     - Add overrides for security settings for Schema Registry
 - UX
+  - Retry/Reconnect on Broker Transport Failure without captured failure
   - Failing Gracefully and Explaining Errors: schema lookup failure
   - Indicate reached head of topic with --earliest
   - Topic Profiles / --env for environment profiles

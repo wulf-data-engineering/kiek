@@ -542,7 +542,7 @@ fn format_timestamp_millis(
 /// Formats the bootstrap servers for the log output with ellipsis for more than one broker
 pub(crate) struct FormatBootstrapServers<'a>(pub(crate) &'a str);
 
-impl<'a> std::fmt::Display for FormatBootstrapServers<'a> {
+impl std::fmt::Display for FormatBootstrapServers<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut split = self.0.split(',');
         match split.next() {
@@ -587,10 +587,7 @@ mod tests {
             "broker1:9092"
         );
         assert_eq!(
-            format!(
-                "{}",
-                FormatBootstrapServers("broker1:9092,broker2:9092")
-            ),
+            format!("{}", FormatBootstrapServers("broker1:9092,broker2:9092")),
             "broker1:9092, ..."
         );
     }
