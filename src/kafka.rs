@@ -36,11 +36,11 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 ///
 pub fn create_config<S: Into<String>>(bootstrap_servers: S) -> ClientConfig {
     let mut client_config = ClientConfig::new();
-    client_config.set("bootstrap.servers", bootstrap_servers);
-    client_config.set("group.id", "kieker"); // required but irrelevant for simple consumer
-    client_config.set("enable.auto.commit", "false"); // never commit offsets
-    client_config.set_log_level(rdkafka::config::RDKafkaLogLevel::Debug); // required for capturing log messages
-    client_config
+        client_config.set("bootstrap.servers", bootstrap_servers);
+            client_config.set("group.id", "kieker"); // required but irrelevant for simple consumer
+                client_config.set("enable.auto.commit", "false"); // never commit offsets
+                    client_config.set_log_level(rdkafka::config::RDKafkaLogLevel::Debug); // required for capturing log messages
+                        client_config
 }
 
 ///
