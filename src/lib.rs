@@ -90,7 +90,7 @@ async fn run(args: Args) -> Result<()> {
         args.region.clone(),
         args.role_arn.clone(),
     )
-        .await;
+    .await;
 
     let glue_schema_registry_facade =
         GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
@@ -105,7 +105,7 @@ async fn run(args: Args) -> Result<()> {
                 args.no_ssl,
                 &feedback,
             )
-                .await?;
+            .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
         _ => {
@@ -115,7 +115,7 @@ async fn run(args: Args) -> Result<()> {
                 credentials,
                 args.no_ssl,
             )
-                .await?;
+            .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
     }
@@ -178,7 +178,15 @@ where
     let mut reconnects = 0;
 
     loop {
-        let result = read_batch(&args, &consumer, &glue_schema_registry_facade, &feedback, &start_date, &mut received_messages).await;
+        let result = read_batch(
+            &args,
+            &consumer,
+            &glue_schema_registry_facade,
+            &feedback,
+            &start_date,
+            &mut received_messages,
+        )
+        .await;
         match result {
             Ok(_) => {
                 reconnects = 0;
@@ -203,7 +211,14 @@ where
     }
 }
 
-async fn read_batch<Ctx>(args: &Args, consumer: &StreamConsumer<Ctx>, glue_schema_registry_facade: &GlueSchemaRegistryFacade, feedback: &&Feedback, start_date: &DateTime<Local>, received_messages: &mut usize) -> Result<()>
+async fn read_batch<Ctx>(
+    args: &Args,
+    consumer: &StreamConsumer<Ctx>,
+    glue_schema_registry_facade: &GlueSchemaRegistryFacade,
+    feedback: &&Feedback,
+    start_date: &DateTime<Local>,
+    received_messages: &mut usize,
+) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
@@ -214,14 +229,14 @@ where
     let buffer = Arc::new(Mutex::new(Vec::<u8>::with_capacity(128 * 1024)));
 
     let mut batch_size = process_record(
-        &args,
+        args,
         buffer.clone(),
         awaited_record,
-        &glue_schema_registry_facade,
-        &feedback,
-        &start_date,
+        glue_schema_registry_facade,
+        feedback,
+        start_date,
     )
-        .await?;
+    .await?;
 
     // As long as there are messages in the batch, process them immediately without writing to the terminal
     loop {
@@ -229,14 +244,14 @@ where
             None => break,
             Some(record) => {
                 batch_size += process_record(
-                    &args,
+                    args,
                     buffer.clone(),
                     record,
-                    &glue_schema_registry_facade,
-                    &feedback,
-                    &start_date,
+                    glue_schema_registry_facade,
+                    feedback,
+                    start_date,
                 )
-                    .await?;
+                .await?;
             }
         }
     }

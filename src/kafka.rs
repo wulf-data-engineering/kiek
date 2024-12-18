@@ -260,9 +260,7 @@ where
         .collect();
 
     if topic_names.is_empty() {
-        Err(KiekError::new(
-            "No topics available in the Kafka cluster",
-        ))
+        Err(KiekError::new("No topics available in the Kafka cluster"))
     } else if topic_names.len() == 1 {
         feedback.info("Using", format!("topic {topic}", topic = &topic_names[0]));
         Ok(TopicOrPartition::Topic(topic_names[0].clone()))

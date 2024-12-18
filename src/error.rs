@@ -71,9 +71,7 @@ mod tests {
 
     #[test]
     fn test_user_friendly_error_messages() {
-        assert_eq!(
-            KiekError::new("Some error").message,
-            "Some error");
+        assert_eq!(KiekError::new("Some error").message, "Some error");
 
         assert_eq!(
             KiekError::new("FAIL [thrd:sasl_ssl://b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-ce]: sasl_ssl://b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.amazonaws.com:9198/bootstrap: SASL authentication error: [4a380ffc-1778-418a-9bb5-264f49c29bcb]: Access denied (after 395ms in state AUTH_REQ)://b-1-public.backendintegrationv.ww63wt.c1.kafka.eu-central-1.amazonaws.com:9198/bootstrap: SASL PLAIN mechanism handshake failed: Broker: Unsupported SASL mechanism: broker's supported mechanisms: OAUTHBEARER,AWS_MSK_IAM (after 379ms in state AUTH_HANDSHAKE)").message,
