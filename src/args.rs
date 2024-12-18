@@ -156,11 +156,9 @@ impl Args {
         I: IntoIterator<Item = T>,
         T: Into<std::ffi::OsString> + Clone,
     {
-
-
-            let args = Args::try_parse_from(itr)?;
-                    args.validate().await?;
-                        Ok(args)
+        let args = Args::try_parse_from(itr)?;
+        args.validate().await?;
+        Ok(args)
     }
 
     async fn validate(&self) -> Result<()> {

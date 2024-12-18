@@ -1,0 +1,29 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt -- --check
+      - name: cargo check
+        run: cargo check
+      - name: cargo clippy
+        run: cargo clippy -- -D warnings
+      - name: Build
+        run: cargo build --locked
+      - name: Test
+        run: cargo test
