@@ -39,7 +39,7 @@ jobs:
         run: |
           git config --global user.name 'Christoph Wulf'
           git config --global user.email 'christoph@wulf.technology'
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+          git remote set-url origin https://x-access-token:${{ secrets.KIEK_PULL_REQUEST_LINTER }}@github.com/${{ github.repository }}
           git commit -am "Format code and fix warnings"
           git push
       - name: Testing
