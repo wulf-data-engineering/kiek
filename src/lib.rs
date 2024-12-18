@@ -1,7 +1,7 @@
 mod args;
 mod aws;
 mod context;
-mod exception;
+mod error;
 mod feedback;
 mod glue;
 mod highlight;
@@ -19,7 +19,7 @@ pub(crate) type CoreResult<T> = core::result::Result<T, Box<dyn Error>>;
 use crate::args::{Args, Authentication, Password};
 use crate::aws::create_credentials_provider;
 use crate::context::KiekContext;
-use crate::exception::KiekException;
+use crate::error::KiekError;
 use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
@@ -89,7 +89,7 @@ async fn run(args: Args) -> Result<()> {
         args.region.clone(),
         args.role_arn.clone(),
     )
-    .await;
+        .await;
 
     let glue_schema_registry_facade =
         GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
@@ -104,7 +104,7 @@ async fn run(args: Args) -> Result<()> {
                 args.no_ssl,
                 &feedback,
             )
-            .await?;
+                .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
         _ => {
@@ -114,7 +114,7 @@ async fn run(args: Args) -> Result<()> {
                 credentials,
                 args.no_ssl,
             )
-            .await?;
+                .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
     }
@@ -169,7 +169,7 @@ async fn consume<Ctx>(
 where
     Ctx: ConsumerContext + 'static,
 {
-    let start_date = chrono::Local::now();
+    let start_date = Local::now();
     let mut received_messages: usize = 0;
 
     feedback.info("Consuming", "messages");
@@ -189,7 +189,7 @@ where
             &feedback,
             &start_date,
         )
-        .await?;
+            .await?;
 
         // As long as there are messages in the batch, process them immediately without writing to the terminal
         loop {
@@ -204,7 +204,7 @@ where
                         &feedback,
                         &start_date,
                     )
-                    .await?;
+                        .await?;
                 }
             }
         }
@@ -307,7 +307,7 @@ fn credentials(args: &Args, feedback: &Feedback) -> Result<Option<(String, Passw
             Ok(Some((username, password.parse::<Password>()?)))
         }
         (Some(username), _) => {
-            Err(KiekException::new(format!("Password is required for user {username}. Use {bold}--pw, --password{bold:#} or {bold}-u {username}:<PASSWORD>{bold:#}.", bold = feedback.highlighting.bold)))
+            Err(KiekError::new(format!("Password is required for user {username}. Use {bold}--pw, --password{bold:#} or {bold}-u {username}:<PASSWORD>{bold:#}.", bold = feedback.highlighting.bold)))
         }
         _ => Ok(None), // No credentials required
     }
@@ -330,14 +330,14 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
     match TcpTarget::from_str(&first_server) {
         Err(e) => {
             error!("Could not parse broker address {first_server}: {e:?}");
-            Err(KiekException::from(e))
+            Err(KiekError::from(e))
         }
         Ok(target) => {
             info!("Resolving {}", target.get_fqhn());
             match target.get_resolve_policy().resolve(target.get_fqhn()) {
                 Err(e) => {
                     error!("Could not resolve {}: {e}", target.get_fqhn());
-                    Err(KiekException::new(format!(
+                    Err(KiekError::new(format!(
                         "Failed to resolve broker address {first_server}."
                     )))
                 }
@@ -359,9 +359,9 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
                         None => {
                             error!("Could not reach {addrs:?}.");
                             if bootstrap_servers == DEFAULT_BROKER_STRING {
-                                Err(KiekException::new(format!("Failed to connect to Kafka cluster at {DEFAULT_BROKER_STRING}. Use {bold}-b, --bootstrap-servers{bold:#} to configure.", bold = highlighting.bold)))
+                                Err(KiekError::new(format!("Failed to connect to Kafka cluster at {DEFAULT_BROKER_STRING}. Use {bold}-b, --bootstrap-servers{bold:#} to configure.", bold = highlighting.bold)))
                             } else {
-                                Err(KiekException::new(format!(
+                                Err(KiekError::new(format!(
                                     "Failed to connect to Kafka cluster at {}.",
                                     FormatBootstrapServers(bootstrap_servers)
                                 )))

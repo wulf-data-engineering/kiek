@@ -1,6 +1,6 @@
 use crate::aws::list_profiles;
 use crate::context::KiekContext;
-use crate::exception::KiekException;
+use crate::error::KiekError;
 use crate::feedback::Feedback;
 use crate::highlight::Highlighting;
 use crate::CoreResult;
@@ -112,17 +112,17 @@ impl KiekContext for IamContext {
     async fn verify(&self, highlighting: &Highlighting) -> crate::Result<()> {
         match self.credentials_provider.provide_credentials().await {
             Err(ProviderError(e)) if format!("{e:?}").contains("Session token not found or invalid") => {
-                Err(KiekException::new(format!("Session token not found or invalid. Run {bold}aws sso login --profile {profile}{bold:#} to refresh your session.", bold = highlighting.bold, profile = self.profile)))
+                Err(KiekError::new(format!("Session token not found or invalid. Run {bold}aws sso login --profile {profile}{bold:#} to refresh your session.", bold = highlighting.bold, profile = self.profile)))
             }
             Err(ProviderError(e)) if format!("{e:?}").contains("is not authorized to perform: sts:AssumeRole") => {
-                Err(KiekException::new(format!("Assuming the passed role failed. Check if profile {profile} has the rights.", profile = self.profile)))
+                Err(KiekError::new(format!("Assuming the passed role failed. Check if profile {profile} has the rights.", profile = self.profile)))
             }
             Err(_) if !list_profiles().await.unwrap_or(vec![self.profile.clone()]).contains(&self.profile) => {
-                Err(KiekException::new(format!("AWS profile {profile} does not exist.", profile = self.profile)))
+                Err(KiekError::new(format!("AWS profile {profile} does not exist.", profile = self.profile)))
             }
             Err(e) => {
                 error!("Failed to provide AWS credentials: {e:?}");
-                Err(KiekException::from(e))
+                Err(KiekError::from(e))
             }
             Ok(_) => {
                 info!("AWS credentials provided successfully");
