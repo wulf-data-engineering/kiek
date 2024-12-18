@@ -1,5 +1,5 @@
 use crate::aws::list_profiles;
-use crate::exception::KiekException;
+use crate::error::KiekError;
 use crate::feedback::Feedback;
 use crate::highlight::Highlighting;
 use crate::kafka::{StartOffset, TopicOrPartition, DEFAULT_BROKER_STRING};
@@ -164,7 +164,7 @@ impl Args {
     async fn validate(&self) -> Result<()> {
         match &self.username {
             Some(Username(_, Some(_))) if self.password.is_some() => {
-                return Err(KiekException::new(
+                return Err(KiekError::new(
                     "Use either --password or --username with password.",
                 ));
             }
@@ -172,7 +172,7 @@ impl Args {
                 let profile = self.profile.clone().unwrap();
                 let profiles = list_profiles().await.unwrap_or(vec![profile.clone()]);
                 if !profiles.contains(&profile) {
-                    return Err(KiekException::new(format!("You passed a username but no password. You passed a non-existing AWS profile instead. Please note: {bold}-p, --profile{bold:#} specifies the AWS profile. {bold}--pw, --password{bold:#} sets the password for the username.", bold = self.highlighting().bold)));
+                    return Err(KiekError::new(format!("You passed a username but no password. You passed a non-existing AWS profile instead. Please note: {bold}-p, --profile{bold:#} specifies the AWS profile. {bold}--pw, --password{bold:#} sets the password for the username.", bold = self.highlighting().bold)));
                 }
             }
             _ => {}

@@ -1,7 +1,7 @@
 mod args;
 mod aws;
 mod context;
-mod exception;
+mod error;
 mod feedback;
 mod glue;
 mod highlight;
@@ -19,7 +19,7 @@ pub(crate) type CoreResult<T> = core::result::Result<T, Box<dyn Error>>;
 use crate::args::{Args, Authentication, Password};
 use crate::aws::create_credentials_provider;
 use crate::context::KiekContext;
-use crate::exception::KiekException;
+use crate::error::KiekError;
 use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
@@ -42,6 +42,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::time::sleep;
 
 pub async fn start() -> Result<()> {
     let args = Args::validated().await;
@@ -169,55 +170,103 @@ async fn consume<Ctx>(
 where
     Ctx: ConsumerContext + 'static,
 {
-    let start_date = chrono::Local::now();
+    let start_date = Local::now();
     let mut received_messages: usize = 0;
 
     feedback.info("Consuming", "messages");
 
+    let mut reconnects = 0;
+
     loop {
-        // Await the next message which is most likely the beginning of a new batch
-        let awaited_record = consumer.recv().await;
-
-        // Buffer the output of the batch
-        let buffer = Arc::new(Mutex::new(Vec::<u8>::with_capacity(128 * 1024)));
-
-        received_messages += process_record(
+        let result = read_batch(
             &args,
-            buffer.clone(),
-            awaited_record,
+            &consumer,
             &glue_schema_registry_facade,
             &feedback,
             &start_date,
+            &mut received_messages,
         )
-        .await?;
-
-        // As long as there are messages in the batch, process them immediately without writing to the terminal
-        loop {
-            match consumer.recv().now_or_never() {
-                None => break,
-                Some(record) => {
-                    received_messages += process_record(
-                        &args,
-                        buffer.clone(),
-                        record,
-                        &glue_schema_registry_facade,
-                        &feedback,
-                        &start_date,
-                    )
-                    .await?;
+        .await;
+        match result {
+            Ok(_) => {
+                reconnects = 0;
+            }
+            Err(e) => {
+                if e.to_string() == KiekError::BROKER_TRANSPORT_FAILURE {
+                    reconnects += 1;
+                    if reconnects > 25 {
+                        return Err(KiekError::new("Too many reconnection attempts. Aborting."));
+                    } else if reconnects >= 4 {
+                        feedback.info("Reconnecting", format!("to broker in {reconnects} attempt"));
+                    } else {
+                        feedback.info("Reconnecting", "to broker");
+                    }
+                    let backoff = Duration::from_millis(50 * 2u64.pow(reconnects));
+                    sleep(backoff).await;
+                } else {
+                    return Err(e);
                 }
             }
         }
-
-        io::stdout().write_all(buffer.lock().unwrap().as_slice())?;
-
-        // If scanning for a key print the no. of consumed messages to indicate consumption
-        if received_messages > 0 && args.key.is_some() {
-            feedback.info("Consumed", format!("{received_messages} messages"));
-        }
-
-        io::stdout().flush()?;
     }
+}
+
+async fn read_batch<Ctx>(
+    args: &Args,
+    consumer: &StreamConsumer<Ctx>,
+    glue_schema_registry_facade: &GlueSchemaRegistryFacade,
+    feedback: &&Feedback,
+    start_date: &DateTime<Local>,
+    received_messages: &mut usize,
+) -> Result<()>
+where
+    Ctx: ConsumerContext + 'static,
+{
+    // Await the next message which is most likely the beginning of a new batch
+    let awaited_record = consumer.recv().await;
+
+    // Buffer the output of the batch
+    let buffer = Arc::new(Mutex::new(Vec::<u8>::with_capacity(128 * 1024)));
+
+    let mut batch_size = process_record(
+        args,
+        buffer.clone(),
+        awaited_record,
+        glue_schema_registry_facade,
+        feedback,
+        start_date,
+    )
+    .await?;
+
+    // As long as there are messages in the batch, process them immediately without writing to the terminal
+    loop {
+        match consumer.recv().now_or_never() {
+            None => break,
+            Some(record) => {
+                batch_size += process_record(
+                    args,
+                    buffer.clone(),
+                    record,
+                    glue_schema_registry_facade,
+                    feedback,
+                    start_date,
+                )
+                .await?;
+            }
+        }
+    }
+
+    io::stdout().write_all(buffer.lock().unwrap().as_slice())?;
+
+    *received_messages += batch_size;
+
+    // If scanning for a key print the no. of consumed messages to indicate consumption
+    if *received_messages > 0 && args.key.is_some() {
+        feedback.info("Consumed", format!("{received_messages} messages"));
+    }
+
+    io::stdout().flush()?;
+    Ok(())
 }
 
 async fn process_record<'a>(
@@ -307,7 +356,7 @@ fn credentials(args: &Args, feedback: &Feedback) -> Result<Option<(String, Passw
             Ok(Some((username, password.parse::<Password>()?)))
         }
         (Some(username), _) => {
-            Err(KiekException::new(format!("Password is required for user {username}. Use {bold}--pw, --password{bold:#} or {bold}-u {username}:<PASSWORD>{bold:#}.", bold = feedback.highlighting.bold)))
+            Err(KiekError::new(format!("Password is required for user {username}. Use {bold}--pw, --password{bold:#} or {bold}-u {username}:<PASSWORD>{bold:#}.", bold = feedback.highlighting.bold)))
         }
         _ => Ok(None), // No credentials required
     }
@@ -330,14 +379,14 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
     match TcpTarget::from_str(&first_server) {
         Err(e) => {
             error!("Could not parse broker address {first_server}: {e:?}");
-            Err(KiekException::from(e))
+            Err(KiekError::from(e))
         }
         Ok(target) => {
             info!("Resolving {}", target.get_fqhn());
             match target.get_resolve_policy().resolve(target.get_fqhn()) {
                 Err(e) => {
                     error!("Could not resolve {}: {e}", target.get_fqhn());
-                    Err(KiekException::new(format!(
+                    Err(KiekError::new(format!(
                         "Failed to resolve broker address {first_server}."
                     )))
                 }
@@ -359,9 +408,9 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
                         None => {
                             error!("Could not reach {addrs:?}.");
                             if bootstrap_servers == DEFAULT_BROKER_STRING {
-                                Err(KiekException::new(format!("Failed to connect to Kafka cluster at {DEFAULT_BROKER_STRING}. Use {bold}-b, --bootstrap-servers{bold:#} to configure.", bold = highlighting.bold)))
+                                Err(KiekError::new(format!("Failed to connect to Kafka cluster at {DEFAULT_BROKER_STRING}. Use {bold}-b, --bootstrap-servers{bold:#} to configure.", bold = highlighting.bold)))
                             } else {
-                                Err(KiekException::new(format!(
+                                Err(KiekError::new(format!(
                                     "Failed to connect to Kafka cluster at {}.",
                                     FormatBootstrapServers(bootstrap_servers)
                                 )))

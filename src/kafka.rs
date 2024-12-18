@@ -1,6 +1,6 @@
 use crate::args::{Authentication, Password};
 use crate::context::{DefaultKiekContext, KiekContext};
-use crate::exception::KiekException;
+use crate::error::KiekError;
 use crate::feedback::Feedback;
 use crate::highlight::Highlighting;
 use crate::msk_iam_context::IamContext;
@@ -71,7 +71,7 @@ pub async fn create_consumer(
         client_config.set("sasl.mechanism", mechanism);
         info!("Using {mechanism} as SASL mechanism.");
 
-        let (username, password) = credentials.ok_or(KiekException::new(
+        let (username, password) = credentials.ok_or(KiekError::new(
             "No credentials provided for SASL authentication.",
         ))?;
         client_config.set("sasl.username", &username);
@@ -125,15 +125,15 @@ where
             Ok(())
         }
         Some(e) => match e {
-            Err(e) => Err(KiekException::from(e)),
+            Err(e) => Err(KiekError::from(e)),
             Ok(_) => unreachable!("Consumer is not assigned yet."),
         },
     }
 }
 
 ///
-/// If result is Kafka broker transport failure, delay the error message until the Kafka log message
-/// is available.
+/// If result is Kafka broker transport failure, the error message is captured from the Kafka log
+/// message.
 ///
 async fn map_errors<Ctx, R>(
     consumer: &StreamConsumer<Ctx>,
@@ -146,7 +146,19 @@ where
         Ok(r) => Ok(r),
         Err(error) => Err(match error.rdkafka_error_code() {
             Some(RDKafkaErrorCode::BrokerTransportFailure) => {
-                KiekException::delayed(error.to_string(), &consumer.context().last_fail())
+                // The FAIL message just appears in the log after the next receive (or consumer drop).
+                // Therfore we need to trigger a receive to get the log message.
+                // In case the consumer decides to retry the position before receive is captured and restored.
+                let position = consumer.position();
+                consumer.recv().now_or_never();
+                position.into_iter().for_each(|p| {
+                    let _ = consumer.seek_partitions(p, TIMEOUT);
+                });
+                let error = consumer.context().last_fail().lock().unwrap().take();
+                match error {
+                    Some(error) => KiekError::new(error),
+                    None => KiekError::new(KiekError::BROKER_TRANSPORT_FAILURE),
+                }
             }
             _ => Box::new(error),
         }),
@@ -248,16 +260,14 @@ where
         .collect();
 
     if topic_names.is_empty() {
-        Err(KiekException::new(
-            "No topics available in the Kafka cluster",
-        ))
+        Err(KiekError::new("No topics available in the Kafka cluster"))
     } else if topic_names.len() == 1 {
         feedback.info("Using", format!("topic {topic}", topic = &topic_names[0]));
         Ok(TopicOrPartition::Topic(topic_names[0].clone()))
     } else if feedback.interactive {
         prompt_topic_or_partition(&metadata, None, feedback).map(|(topic, _)| topic)
     } else {
-        Err(KiekException::new(
+        Err(KiekError::new(
             "Multiple topics available in the Kafka cluster: Please specify a topic.",
         ))
     }
@@ -409,7 +419,7 @@ where
                 let metadata = consumer.fetch_metadata(None, TIMEOUT)?;
                 prompt_topic_or_partition(&metadata, Some(topic_or_partition), feedback)
             } else {
-                Err(KiekException::new("Topic does not exist."))
+                Err(KiekError::new("Topic does not exist."))
             }
         }
     }
@@ -448,7 +458,7 @@ where
         }
         TopicOrPartition::TopicPartition(_, partition) => {
             if partition > num_partitions {
-                return Err(KiekException::new(format!("Partition {partition} is out of range for {topic} with {num_partitions} partitions.")));
+                return Err(KiekError::new(format!("Partition {partition} is out of range for {topic} with {num_partitions} partitions.")));
             }
 
             let partition_offsets: HashMap<(String, i32), Offset> =
