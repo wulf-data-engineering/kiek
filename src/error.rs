@@ -18,6 +18,8 @@ lazy_static! {
 }
 
 impl KiekError {
+    pub const BROKER_TRANSPORT_FAILURE: &'static str = "Connection to broker is interrupted";
+
     pub fn new<S: Into<String>>(message: S) -> Box<Self> {
         Box::new(Self {
             message: Self::user_friendly(message.into()),

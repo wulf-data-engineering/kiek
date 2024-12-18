@@ -157,7 +157,7 @@ where
                 let error = consumer.context().last_fail().lock().unwrap().take();
                 match error {
                     Some(error) => KiekError::new(error),
-                    None => KiekError::new("Broker transport failure."),
+                    None => KiekError::new(KiekError::BROKER_TRANSPORT_FAILURE),
                 }
             }
             _ => Box::new(error),
