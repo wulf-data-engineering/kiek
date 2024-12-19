@@ -1,0 +1,42 @@
+name: Update version and create release PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version name'
+        required: true
+        default: 'minor'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-bump
+      - run: cargo install cargo-get
+      - run: |
+          git config user.name "Christoph Wulf"
+          git config user.email "christoph@wulf.technology"
+      - name: Update the version
+        id: update_version
+        run: |
+          cargo bump ${{ github.event.inputs.version }}
+          echo "Bumping to version $(cargo get package.version)"
+          echo "version=$(cargo get package.version)" >> $GITHUB_OUTPUT
+      - name: Create pull request
+        id: create_pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+#          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: release/${{ steps.update_version.outputs.version }}
+          title: "Release version ${{ steps.update_version.outputs.version }}"
+          commit-message: "Release version ${{ steps.update_version.outputs.version }}"
+          body: "Updates version to ${{ steps.update_version.outputs.version }}"
+          base: main
