@@ -1,0 +1,49 @@
+name: Release version
+
+on:
+  pull_request:
+    types:
+      - closed
+jobs:
+  build:
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      matrix:
+        platform:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: |
+          rustup target add ${{ matrix.platform.target }}
+          cargo build --target ${{ matrix.platform.target }} --profile ship --locked
+          mv target/${{ matrix.platform.target }}/ship/kiek target/${{ matrix.platform.target }}/ship/kiek-${{ matrix.platform.target }}
+          tar -czf kiek-${{ matrix.platform.target }}.tar.gz target/${{ matrix.platform.target }}/ship/kiek-${{ matrix.platform.target }}
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiek-${{ matrix.platform.target }}
+          path: kiek-${{ matrix.platform.target }}.tar.gz
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download
+        uses: actions/download-artifact@v4
+      - run: |
+          mv kiek-aarch64-apple-darwin/kiek-aarch64-apple-darwin.tar.gz kiek-x86_64-unknown-linux-gnu.tar.gz
+          mv kiek-x86_64-unknown-linux-gnu/kiek-x86_64-unknown-linux-gnu.tar.gz kiek-aarch64-apple-darwin.tar.gz
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release 1.0.0
+          tag_name: v1.0.0
+          draft: true
+          files: |
+            kiek-aarch64-apple-darwin.tar.gz
+            kiek-x86_64-unknown-linux-gnu.tar.gz
+          generate_release_notes: true
