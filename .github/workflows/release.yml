@@ -1,0 +1,68 @@
+name: Release version
+
+on:
+  pull_request:
+    types:
+      - closed
+
+jobs:
+  build:
+    if: startsWith(github.head_ref, 'release/') && github.event.pull_request.merged == true
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      matrix:
+        platform:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: |
+          rustup target add ${{ matrix.platform.target }}
+          cargo build --target ${{ matrix.platform.target }} --profile ship
+          mv target/${{ matrix.platform.target }}/ship/kiek kiek-${{ matrix.platform.target }}
+          tar -czf kiek-${{ matrix.platform.target }}.tar.gz kiek-${{ matrix.platform.target }}
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiek-${{ matrix.platform.target }}
+          path: kiek-${{ matrix.platform.target }}.tar.gz
+  release:
+    if: startsWith(github.head_ref, 'release/') && github.event.pull_request.merged == true
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Obtain version
+        id: obtain-version
+        run: |
+          cargo install cargo-get
+          echo "version=$(cargo get package.version)" >> $GITHUB_OUTPUT
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+      - name: Prepare artifacts
+        run: |
+          mv kiek-aarch64-apple-darwin/kiek-aarch64-apple-darwin.tar.gz .
+          mv kiek-x86_64-unknown-linux-gnu/kiek-x86_64-unknown-linux-gnu.tar.gz .
+      - name: Tag the commit
+        run: |
+          git config user.name "Christoph Wulf"
+          git config user.email "christoph@wulf.technology"
+          next_version=${{ steps.obtain-version.outputs.version }}
+          git tag -a "v$next_version" -m "Version $next_version"
+          git push --follow-tags
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: Release ${{ steps.obtain-version.outputs.version }}
+          generate_release_notes: true
+          tag_name: v${{ steps.obtain-version.outputs.version }}
+          make_latest: true
+          files: |
+            kiek-aarch64-apple-darwin.tar.gz
+            kiek-x86_64-unknown-linux-gnu.tar.gz
