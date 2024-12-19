@@ -1,5 +1,7 @@
 ![kiek logo which is bascially the kafka logo with magnifying glasses instead of the circles](kiek.svg)
 
+[![Continuous Integration](https://github.com/wulf-data-engineering/kiek/actions/workflows/main.yml/badge.svg)](https://github.com/wulf-data-engineering/kiek/actions/workflows/main.yml)
+
 `kiek` (/ˈkiːk/ - Northern German for _Look!_) is a command line tool to look into Kafka topics, especially, if they are
 _complicated_, e.g.
 

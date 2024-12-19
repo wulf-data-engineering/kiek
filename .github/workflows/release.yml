@@ -1,0 +1,39 @@
+name: Release version
+
+on:
+  pull_request:
+    types:
+      - closed
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: startsWith(github.head_ref, 'release/') && github.event.pull_request.merged == true
+    steps:
+      - uses: actions/checkout@v4
+#      - uses: Swatinem/rust-cache@v2
+#      - name: Release Build
+#        run: cargo build --profile ship
+      - run: |
+          git config user.name "Christoph Wulf"
+          git config user.email "christoph@wulf.technology"
+      - name: Obtain version
+        id: obtain-version
+        run: |
+          cargo install cargo-get
+          echo "version=$(cargo get package.version)" >> $GITHUB_OUTPUT
+      - name: Tag the commit
+        run: |
+          next_version=${{ steps.obtain-version.outputs.version }}
+          git tag -a "v$next_version" -m "Version $next_version"
+          git push --follow-tags
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: kiek ${{ steps.obtain-version.outputs.version }}
+          generate_release_notes: true
+          make_latest: true
+          files: |
+            Release.txt
+            LICENSE
