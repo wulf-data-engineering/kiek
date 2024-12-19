@@ -1,0 +1,44 @@
+name: Tag and release
+
+on:
+  pull_request:
+    types:
+      - closed
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: startsWith(github.head_ref, 'release/') && github.event.pull_request.merged == true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Release Build
+        run: cargo build --profile ship
+      - run: |
+          git config user.name "Christoph Wulf"
+          git config user.email "christoph@wulf.technology"
+      - name: Obtain tag
+        id: obtain-tag
+        run: |
+          cargo install cargo-get
+          echo "version=$(cargo get package.version)" >> $GITHUB_ENV
+      - name: Tag the commit
+        run: |
+          next_version=${{ steps.obtain_tag.outputs.version }}
+          git tag -a "v$next_version" -m "Version $next_version"
+          git push --follow-tags
+      - name: Create release notes
+        id: release-notes
+        run: |
+          sed -n "/^## \[${{ steps.obtain_tag.outputs.version }}\]/,/^## \[$(git describe --abbrev=0 --tags $(git rev-list --tags --skip=1 --max-count=1))\]/{/^## \[$(git describe --abbrev=0 --tags $(git rev-list --tags --skip=1 --max-count=1))\]/!p;}" CHANGELOG.md > release-notes.md
+          cat release-notes.md
+#      - name: Create release
+#        uses: actions/create-release@v1
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        with:
+#          tag_name: v${{ steps.obtain_tag.outputs.version }}
+#          release_name: Release ${{ steps.obtain_tag.outputs.version }}
+#          body_path: ./release-notes.md
+#          draft: true
+#          prerelease: false
