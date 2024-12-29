@@ -13,6 +13,22 @@ _complicated_, e.g.
 `kiek` **analyzes the messages** in a topic, **looks up corresponding schemas** if necessary and prints the payloads
 with syntax highlighting in a **human-readable format**.
 
+## Installation
+
+### Homebrew on macOS and Linux
+
+```shell
+brew install wulf-data-engineering/kiek/kiek
+```
+
+### Cargo on macOS, Linux and Windows
+
+Install cargo from https://rustup.rs/ and run
+
+```shell
+cargo install kiek
+```
+
 ## Roadmap
 
 ### Publish
