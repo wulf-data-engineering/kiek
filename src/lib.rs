@@ -10,6 +10,7 @@ mod msk_iam_context;
 mod payload;
 
 use std::error::Error;
+use std::fs::File;
 use std::io;
 use std::io::Write;
 
@@ -30,6 +31,8 @@ use crate::kafka::{
 };
 use crate::payload::{format_payload, parse_payload};
 use chrono::{DateTime, Local};
+use clap::CommandFactory;
+use clap_complete::{generate, Shell};
 use futures::FutureExt;
 use log::{debug, error, info, trace, LevelFilter};
 use rdkafka::consumer::{ConsumerContext, StreamConsumer};
@@ -90,7 +93,7 @@ async fn run(args: Args) -> Result<()> {
         args.region.clone(),
         args.role_arn.clone(),
     )
-    .await;
+        .await;
 
     let glue_schema_registry_facade =
         GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
@@ -105,7 +108,7 @@ async fn run(args: Args) -> Result<()> {
                 args.no_ssl,
                 &feedback,
             )
-            .await?;
+                .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
         _ => {
@@ -115,7 +118,7 @@ async fn run(args: Args) -> Result<()> {
                 credentials,
                 args.no_ssl,
             )
-            .await?;
+                .await?;
             connect(args, &feedback, glue_schema_registry_facade, consumer).await
         }
     }
@@ -186,7 +189,7 @@ where
             &start_date,
             &mut received_messages,
         )
-        .await;
+            .await;
         match result {
             Ok(_) => {
                 reconnects = 0;
@@ -236,7 +239,7 @@ where
         feedback,
         start_date,
     )
-    .await?;
+        .await?;
 
     // As long as there are messages in the batch, process them immediately without writing to the terminal
     loop {
@@ -251,7 +254,7 @@ where
                     feedback,
                     start_date,
                 )
-                .await?;
+                    .await?;
             }
         }
     }
@@ -450,5 +453,22 @@ mod tests {
             .is_err());
 
         assert!(verify_connection("www.google.de:443", &h).await.is_ok());
+    }
+}
+
+///
+/// Generate shell completions for Zsh, Bash and Fish.
+/// This function is called when the program is invoked with the single argument "completions".
+///
+pub fn check_completions() {
+    let mut args = std::env::args();
+    if args.len() == 2 && args.nth(1).unwrap() == "completions" {
+        const NAME: &str = env!("CARGO_PKG_NAME");
+        // ensure the target directory exists
+        std::fs::create_dir_all("completions").unwrap();
+        generate(Shell::Zsh, &mut Args::command(), NAME, &mut File::create(format!("completions/_{NAME}")).unwrap());
+        generate(Shell::Bash, &mut Args::command(), NAME, &mut File::create(format!("completions/{NAME}.bash")).unwrap());
+        generate(Shell::Fish, &mut Args::command(), NAME, &mut File::create(format!("completions/{NAME}.fish")).unwrap());
+        std::process::exit(0);
     }
 }

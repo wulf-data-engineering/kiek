@@ -43,8 +43,7 @@ bigdecimal = "0.4.7"
 assert_cmd = "2.0.16"
 predicates = "3.1.3"
 
-[profile.ship]
-inherits = "release"
+[profile.release]
 strip = true # Omit debug symbols for panics in favor of smaller binary
 opt-level = "z" # Optimize for size: Kafka will be the bottleneck, not CPU
 panic = "abort" # Don't rewind the stack on panic to reduce binary size

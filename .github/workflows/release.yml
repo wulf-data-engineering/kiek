@@ -22,8 +22,8 @@ jobs:
       - name: Build
         run: |
           rustup target add ${{ matrix.platform.target }}
-          cargo build --target ${{ matrix.platform.target }} --profile ship
-          mv target/${{ matrix.platform.target }}/ship/kiek kiek
+          cargo build --target ${{ matrix.platform.target }} --release
+          mv target/${{ matrix.platform.target }}/release/kiek kiek
       - name: Codesign for macOS
         if: matrix.platform.os == 'macos-latest'
         run: |
@@ -31,9 +31,11 @@ jobs:
           echo "${{ secrets.APPLE_CODESIGN_PRIVATE }}" > apple-codesign-private.pem
           rcodesign sign --pem-source apple-codesign-private.pem --certificate-der-file .github/workflows/files/developerID_application.cer --code-signature-flags runtime kiek
           rm apple-codesign-private.pem
+      - name: Generate shell completions
+        run: ./kiek completions
       - name: Package
         run: |
-          tar -czf kiek-${{ matrix.platform.target }}.tar.gz kiek
+          tar -czf kiek-${{ matrix.platform.target }}.tar.gz completions kiek
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
