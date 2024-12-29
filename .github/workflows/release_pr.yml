@@ -13,7 +13,8 @@ on:
           - minor
           - patch
 jobs:
-  version:
+  release-pr:
+    name: "Prepare release PR"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
