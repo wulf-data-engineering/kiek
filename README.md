@@ -13,38 +13,66 @@ _complicated_, e.g.
 `kiek` **analyzes the messages** in a topic, **looks up corresponding schemas** if necessary and prints the payloads
 with syntax highlighting in a **human-readable format**.
 
+## Installation
+
+### Homebrew on macOS and Linux including shell completions *(latest release)*
+
+```shell
+brew install wulf-data-engineering/tap/kiek
+```
+
+### Cargo on Windows, macOS and Linux *(trunk)*
+
+Install cargo from https://rustup.rs/ and run
+
+```shell
+cargo install --git https://github.com/wulf-data-engineering/kiek
+```
+
+Make sure to have the `~/.cargo/bin` directory in your `PATH`.
+
+## Releasing
+
+To release a new version, start
+the [Prepare Release](https://github.com/wulf-data-engineering/kiek/actions/workflows/release_pr.yml) workflow with
+major, minor or
+patch as input.
+
+It creates a pull request for the new version.
+
+Merging that pull request starts
+the [Release](https://github.com/wulf-data-engineering/kiek/actions/workflows/release.yml) workflow, which creates a new
+draft release with the binaries for macOS and Linux.
+It also drafts a pull request for
+the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap/blob/main/Formula/kiek.rb).
+
 ## Roadmap
 
 ### Publish
 
-- Publish to homebrew with auto complete
-  - https://extrawurst.medium.com/github-actions-homebrew-%EF%B8%8F-2789ae5023fd
-  - https://github.com/akeru-inc/xcnotary (taps, instructions)
-  - https://github.com/BurntSushi/ripgrep/blob/31adff6f3c4bfefc9e77df40871f2989443e6827/pkg/brew/ripgrep-bin.rb
-  - https://rust-cli.github.io/book/in-depth/docs.html
 - Notarize macOS binary
-  - pkg: https://stackoverflow.com/questions/43525852/create-pkg-installer-with-bare-executable
-  - https://users.rust-lang.org/t/distributing-cli-apps-on-macos/70223
+    - pkg: https://stackoverflow.com/questions/43525852/create-pkg-installer-with-bare-executable
+    - https://users.rust-lang.org/t/distributing-cli-apps-on-macos/70223
 - More Integration Testing
 
 ### Increment Capabilities
 
 - Services
-  - Support OAuth (SASL OAUTHBEARER) via --token
-  - Support (Confluent) Schema Registry
-    - Basic Auth (SASL PLAIN/SCRAM)
-    - OAuth (SASL OAUTHBEARER)
-    - Add overrides for security settings for Schema Registry
-  - Support non-string keys
+    - Support OAuth (SASL OAUTHBEARER) via --token
+    - Support (Confluent) Schema Registry
+        - Basic Auth (SASL PLAIN/SCRAM)
+        - OAuth (SASL OAUTHBEARER)
+        - Add overrides for security settings for Schema Registry
+    - Support non-string keys
 - UX
-  - Explain schema lookup failures
-  - Indicate reached head of topic with --earliest
-  - Topic Profiles / --env for environment profiles
+    - Explain schema lookup failures
+    - Indicate reached head of topic with --earliest
+    - Topic Profiles / --env for environment profiles
 - Navigation
-  - search since timestamp (fixed, relative)
-  - Default limit and continue with <enter>
+    - search since timestamp (fixed, relative)
+    - Default limit and continue with <enter>
 - Output Formats
-  - Key, Value, Timestamp, Offset, Partition, Topic
+    - Key, Value, Timestamp, Offset, Partition, Topic
 
 ### Increment to kieker
 
