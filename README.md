@@ -37,6 +37,72 @@ cargo install --git https://github.com/wulf-data-engineering/kiek
 
 Make sure to have the `~/.cargo/bin` directory in your `PATH`.
 
+## Usage
+
+### Connect to local cluster
+
+```shell
+kiek
+```
+
+Connects to [Redpanda](https://www.redpanda.com) ([suggested](docker-compose.yml) locally) or Kafka on 172.0.0.1:9092
+without authentication and lists topics for selection.
+
+### Follow a topic
+
+```shell
+kiek some-topic
+```
+
+Follows all partitions of _some-topic_ and prints all new messages
+
+### Follow a partition
+
+```shell
+kiek some-topic-1 -o=-5
+```
+
+Follows partition _1_ of _some-topic_ and prints the newest five and all newer messages.
+
+### Scan for a key
+
+```shell
+kiek some-topic -o=beginning -k=some-key
+```
+
+### Authenticate at remote broker
+
+```shell
+kiek -b kafka.example.com:9092 -u alice          # uses SASL/PLAIN
+kiek -b kafka.example.com:9092 -u alice:password # uses SASL/PLAIN
+kiek -b kafka.example.com:9092 -u alice -a plain
+kiek -b kafka.example.com:9092 -u alice -a sha256
+kiek -b kafka.example.com:9092 -u alice -a sha512
+```
+
+Prompts for password if not provided.
+
+### Authenticate at AWS MSK
+
+```shell
+kiek -b kafka.example.com:9092 -a msk-iam                   # uses the default profile
+kiek -b kafka.example.com:9092 -p my-profile
+kiek -b kafka.example.com:9092 -p my-profile --role my-role # assumes the role
+```
+
+Checks if SSO is involved and the token expired.  
+If a message payload is binary and contains a header and schema id, it looks up the schema in AWS Glue Schema Registry
+with the same credentials.
+
+### Show the help
+
+```shell
+kiek -h     # short help
+kiek --help # detailed help
+```
+
+See the help for all options.
+
 ## Releasing
 
 To release a new version, start
@@ -74,6 +140,7 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
     - Explain schema lookup failures
     - Indicate reached head of topic with --earliest
     - Topic Profiles / --env for environment profiles
+    - Ask for MFA token for SSO
 - Navigation
     - search since timestamp (fixed, relative)
     - Default limit and continue with <enter>
