@@ -1422,6 +1422,7 @@ dependencies = [
  "clap_complete",
  "dialoguer",
  "futures",
+ "hex",
  "lazy_static",
  "levenshtein",
  "log",

@@ -8,6 +8,7 @@ mod highlight;
 mod kafka;
 mod msk_iam_context;
 mod payload;
+mod schema_registry;
 
 use std::error::Error;
 use std::fs::File;
@@ -46,6 +47,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::sleep;
+use crate::schema_registry::SchemaRegistryFacade;
 
 pub async fn start() -> Result<()> {
     let args = Args::validated().await;
@@ -98,6 +100,12 @@ async fn run(args: Args) -> Result<()> {
     let glue_schema_registry_facade =
         GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
 
+    let schema_registry_facade =
+        match args.schema_registry_url() {
+            Some(_url) => Some(SchemaRegistryFacade::new(&feedback)),
+            None => None,
+        };
+
     match authentication {
         Authentication::MskIam => {
             let consumer = kafka::create_msk_consumer(
@@ -109,7 +117,7 @@ async fn run(args: Args) -> Result<()> {
                 &feedback,
             )
             .await?;
-            connect(args, &feedback, glue_schema_registry_facade, consumer).await
+            connect(args, &feedback, glue_schema_registry_facade, schema_registry_facade, consumer).await
         }
         _ => {
             let consumer = kafka::create_consumer(
@@ -119,7 +127,7 @@ async fn run(args: Args) -> Result<()> {
                 args.no_ssl,
             )
             .await?;
-            connect(args, &feedback, glue_schema_registry_facade, consumer).await
+            connect(args, &feedback, glue_schema_registry_facade, schema_registry_facade, consumer).await
         }
     }
 }
@@ -131,6 +139,7 @@ async fn connect<C>(
     args: Args,
     feedback: &Feedback,
     glue_schema_registry_facade: GlueSchemaRegistryFacade,
+    schema_registry_facade: Option<SchemaRegistryFacade>,
     consumer: StreamConsumer<C>,
 ) -> Result<()>
 where
@@ -158,7 +167,7 @@ where
         }
     }
 
-    consume(args, consumer, glue_schema_registry_facade, feedback).await
+    consume(args, consumer, glue_schema_registry_facade, schema_registry_facade, feedback).await
 }
 
 ///
@@ -168,6 +177,7 @@ async fn consume<Ctx>(
     args: Args,
     consumer: StreamConsumer<Ctx>,
     glue_schema_registry_facade: GlueSchemaRegistryFacade,
+    schema_registry_facade: Option<SchemaRegistryFacade>,
     feedback: &Feedback,
 ) -> Result<()>
 where
@@ -185,6 +195,7 @@ where
             &args,
             &consumer,
             &glue_schema_registry_facade,
+            schema_registry_facade.as_ref(),
             &feedback,
             &start_date,
             &mut received_messages,
@@ -218,6 +229,7 @@ async fn read_batch<Ctx>(
     args: &Args,
     consumer: &StreamConsumer<Ctx>,
     glue_schema_registry_facade: &GlueSchemaRegistryFacade,
+    schema_registry_facade: Option<&SchemaRegistryFacade>,
     feedback: &&Feedback,
     start_date: &DateTime<Local>,
     received_messages: &mut usize,
@@ -236,6 +248,7 @@ where
         buffer.clone(),
         awaited_record,
         glue_schema_registry_facade,
+        schema_registry_facade,
         feedback,
         start_date,
     )
@@ -251,6 +264,7 @@ where
                     buffer.clone(),
                     record,
                     glue_schema_registry_facade,
+                    schema_registry_facade,
                     feedback,
                     start_date,
                 )
@@ -277,6 +291,7 @@ async fn process_record<'a>(
     buffer: Arc<Mutex<Vec<u8>>>,
     record: core::result::Result<BorrowedMessage<'a>, KafkaError>,
     glue_schema_registry_facade: &GlueSchemaRegistryFacade,
+    schema_registry_facade: Option<&SchemaRegistryFacade>,
     feedback: &&Feedback,
     start_date: &DateTime<Local>,
 ) -> Result<usize> {
@@ -302,7 +317,7 @@ async fn process_record<'a>(
                 _ => {}
             }
 
-            let value = parse_payload(message.payload(), glue_schema_registry_facade).await?;
+            let value = parse_payload(message.payload(), glue_schema_registry_facade, schema_registry_facade, &feedback.highlighting).await?;
             let value = format_payload(&value, &feedback.highlighting);
 
             let partition_style = feedback.highlighting.partition(message.partition());
