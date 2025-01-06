@@ -31,6 +31,7 @@ use crate::kafka::{
     DEFAULT_PORT,
 };
 use crate::payload::{format_payload, parse_payload};
+use crate::schema_registry::SchemaRegistryFacade;
 use chrono::{DateTime, Local};
 use clap::CommandFactory;
 use clap_complete::{generate, Shell};
@@ -47,7 +48,6 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::sleep;
-use crate::schema_registry::SchemaRegistryFacade;
 
 pub async fn start() -> Result<()> {
     let args = Args::validated().await;
@@ -100,11 +100,7 @@ async fn run(args: Args) -> Result<()> {
     let glue_schema_registry_facade =
         GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
 
-    let schema_registry_facade =
-        match args.schema_registry_url() {
-            Some(_url) => Some(SchemaRegistryFacade::new(&feedback)),
-            None => None,
-        };
+    let schema_registry_facade = args.schema_registry_url().map(|url| SchemaRegistryFacade::new(url, &feedback));
 
     match authentication {
         Authentication::MskIam => {
@@ -117,7 +113,14 @@ async fn run(args: Args) -> Result<()> {
                 &feedback,
             )
             .await?;
-            connect(args, &feedback, glue_schema_registry_facade, schema_registry_facade, consumer).await
+            connect(
+                args,
+                &feedback,
+                glue_schema_registry_facade,
+                schema_registry_facade,
+                consumer,
+            )
+            .await
         }
         _ => {
             let consumer = kafka::create_consumer(
@@ -127,7 +130,14 @@ async fn run(args: Args) -> Result<()> {
                 args.no_ssl,
             )
             .await?;
-            connect(args, &feedback, glue_schema_registry_facade, schema_registry_facade, consumer).await
+            connect(
+                args,
+                &feedback,
+                glue_schema_registry_facade,
+                schema_registry_facade,
+                consumer,
+            )
+            .await
         }
     }
 }
@@ -167,7 +177,14 @@ where
         }
     }
 
-    consume(args, consumer, glue_schema_registry_facade, schema_registry_facade, feedback).await
+    consume(
+        args,
+        consumer,
+        glue_schema_registry_facade,
+        schema_registry_facade,
+        feedback,
+    )
+    .await
 }
 
 ///
@@ -317,7 +334,13 @@ async fn process_record<'a>(
                 _ => {}
             }
 
-            let value = parse_payload(message.payload(), glue_schema_registry_facade, schema_registry_facade, &feedback.highlighting).await?;
+            let value = parse_payload(
+                message.payload(),
+                glue_schema_registry_facade,
+                schema_registry_facade,
+                &feedback.highlighting,
+            )
+            .await?;
             let value = format_payload(&value, &feedback.highlighting);
 
             let partition_style = feedback.highlighting.partition(message.partition());
@@ -441,36 +464,6 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::net::TcpListener;
-
-    #[tokio::test]
-    async fn test_verify_connection() {
-        let h = Highlighting::plain();
-
-        assert!(verify_connection("foo", &h).await.is_err());
-        assert!(verify_connection("foo:xs", &h).await.is_err());
-        assert!(verify_connection("foo:123456", &h).await.is_err());
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-
-        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h)
-            .await
-            .is_ok());
-
-        drop(listener); // disconnect
-
-        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h)
-            .await
-            .is_err());
-
-        assert!(verify_connection("www.google.de:443", &h).await.is_ok());
-    }
-}
-
 ///
 /// Generate shell completions for Zsh, Bash and Fish.
 /// This function is called when the program is invoked with the single argument "completions".
@@ -500,5 +493,35 @@ pub fn check_completions() {
             &mut File::create(format!("completions/{NAME}.fish")).unwrap(),
         );
         std::process::exit(0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn test_verify_connection() {
+        let h = Highlighting::plain();
+
+        assert!(verify_connection("foo", &h).await.is_err());
+        assert!(verify_connection("foo:xs", &h).await.is_err());
+        assert!(verify_connection("foo:123456", &h).await.is_err());
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h)
+            .await
+            .is_ok());
+
+        drop(listener); // disconnect
+
+        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h)
+            .await
+            .is_err());
+
+        assert!(verify_connection("www.google.de:443", &h).await.is_ok());
     }
 }

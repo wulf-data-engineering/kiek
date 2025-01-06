@@ -1,7 +1,8 @@
+use crate::feedback::Feedback;
 use crate::Result;
 use apache_avro::Schema;
-use crate::feedback::Feedback;
 use log::{debug, info};
+use serde::Deserialize;
 use tokio::sync::Mutex;
 
 ///
@@ -51,9 +52,7 @@ pub async fn decode_schema_registry_message<'a>(
     message: SchemaRegistryMessage<'a>,
     schema_registry_facade: &SchemaRegistryFacade,
 ) -> Result<apache_avro::types::Value> {
-    let schema = schema_registry_facade
-        .get_schema(message.schema_id)
-        .await?;
+    let schema = schema_registry_facade.get_schema(message.schema_id).await?;
     let value =
         apache_avro::from_avro_datum(&schema, &mut std::io::Cursor::new(message.payload), None)?;
     Ok(value)
@@ -63,15 +62,22 @@ pub async fn decode_schema_registry_message<'a>(
 /// A facade for the Confluent Schema Registry that caches schema definitions locally
 ///
 pub struct SchemaRegistryFacade {
+    url: String,
     cache: Mutex<std::collections::HashMap<i32, Schema>>,
     feedback: Feedback,
 }
 
+#[derive(Deserialize)]
+struct SchemaRegistryResponse {
+    schema: String, // serde_json::Value,
+}
+
 impl SchemaRegistryFacade {
-    pub fn new(feedback: &Feedback) -> Self {
+    pub fn new(url: String, feedback: &Feedback) -> Self {
         let feedback = feedback.clone();
 
         Self {
+            url,
             cache: Mutex::new(std::collections::HashMap::new()),
             feedback,
         }
@@ -90,11 +96,15 @@ impl SchemaRegistryFacade {
 
         info!("Loading schema version {}.", schema_id);
 
-        let schema_definition = r#"{"type":"record","name":"myrecord","fields":[{"name":"f1","type":"string"}]}"#;
+        let response =
+            reqwest::get(format!("{url}/schemas/ids/{schema_id}", url = self.url)).await?;
+        let response = response.error_for_status()?;
+        let response = response.text().await?;
+        let response = serde_json::from_str::<SchemaRegistryResponse>(&response)?;
 
-        info!("Parsing schema version {schema_id}:\n{schema_definition}");
+        info!("Parsing schema version {schema_id}:\n{}", response.schema);
 
-        let schema = Schema::parse_str(&schema_definition)?;
+        let schema = Schema::parse_str(&response.schema)?;
 
         cache.insert(schema_id, schema.clone());
 
@@ -141,20 +151,26 @@ mod tests {
 
     #[test]
     fn test_decode() {
-        let schema = r#"{"type":"record","name":"myrecord","fields":[{"name":"f1","type":"string"}]}"#;
+        let schema =
+            r#"{"type":"record","name":"myrecord","fields":[{"name":"f1","type":"string"}]}"#;
         let schema = Schema::parse_str(schema).unwrap();
         let fixture = "AAAAAAEOdmFsdWU0Mg==";
         let data = openssl::base64::decode_block(fixture).unwrap();
 
         let message = analyze_schema_registry_message(&data).unwrap();
 
-        let value = apache_avro::from_avro_datum(&schema, &mut std::io::Cursor::new(message.payload), None).unwrap();
+        let value =
+            apache_avro::from_avro_datum(&schema, &mut std::io::Cursor::new(message.payload), None)
+                .unwrap();
 
         match value {
             apache_avro::types::Value::Record(record) => {
-                let (f1, value42) = record.iter().next().unwrap();
+                let (f1, value42) = record.first().unwrap();
                 assert_eq!(f1, "f1");
-                assert_eq!(value42, &apache_avro::types::Value::String("value42".to_string()));
+                assert_eq!(
+                    value42,
+                    &apache_avro::types::Value::String("value42".to_string())
+                );
             }
             _ => panic!("Unexpected value: {:?}", value),
         }

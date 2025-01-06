@@ -91,8 +91,18 @@ kiek -b kafka.example.com:9092 -p my-profile --role my-role # assumes the role
 ```
 
 Checks if SSO is involved and the token expired.  
-If a message payload is binary and contains a header and schema id, it looks up the schema in AWS Glue Schema Registry
-with the same credentials.
+If a message payload is binary and contains a header and schema id, it looks up the AVRO schema in AWS Glue Schema
+Registry with the same credentials.
+
+### Configure Confluent Schema Registry
+
+```shell
+kiek -b kafka.example.com:9092 --schema-registry-url https://schema-registry.example.com:8081
+```
+
+Default is `http://localhost:8081` if the broker is local, too.
+
+Supports no authentication for now.
 
 ### Show the help
 
@@ -130,11 +140,10 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
 ### Increment Capabilities
 
 - Services
+    - Basic Auth (SASL PLAIN/SCRAM) for Schema Registry
     - Support OAuth (SASL OAUTHBEARER) via --token
-    - Support (Confluent) Schema Registry
-        - Basic Auth (SASL PLAIN/SCRAM)
-        - OAuth (SASL OAUTHBEARER)
-        - Add overrides for security settings for Schema Registry
+    - OAuth (SASL OAUTHBEARER) for Schema Registry
+    - Add overrides for security settings for Schema Registry
     - Support non-string keys
 - UX
     - Explain schema lookup failures

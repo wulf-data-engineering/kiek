@@ -1,7 +1,9 @@
 use crate::error::KiekError;
 use crate::glue::{analyze_glue_message, decode_glue_message, GlueSchemaRegistryFacade};
 use crate::highlight::{write_avro_value, write_json_value, write_null, Highlighting};
-use crate::schema_registry::{analyze_schema_registry_message, decode_schema_registry_message, SchemaRegistryFacade};
+use crate::schema_registry::{
+    analyze_schema_registry_message, decode_schema_registry_message, SchemaRegistryFacade,
+};
 use crate::Result;
 use std::fmt::Display;
 
@@ -26,7 +28,13 @@ pub async fn parse_payload(
             if payload.is_empty() {
                 Ok(Payload::String("".to_string()))
             } else {
-                parse_payload_bytes(payload, glue_schema_registry_facade, schema_registry_facade, highlighting).await
+                parse_payload_bytes(
+                    payload,
+                    glue_schema_registry_facade,
+                    schema_registry_facade,
+                    highlighting,
+                )
+                .await
             }
         }
     }
@@ -40,7 +48,7 @@ async fn parse_payload_bytes(
 ) -> Result<Payload> {
     if let Ok(message) = analyze_schema_registry_message(payload) {
         let schema_registry_facade = schema_registry_facade.ok_or(
-            KiekError::new(format!("Received an AVRO encoded message without Schema Registry. Use {bold} --schema-registry-url{bold:#} to configure.", bold = highlighting.bold)))?;
+            KiekError::new(format!("Received an AVRO encoded message without Schema Registry. Use {bold}--schema-registry-url{bold:#} to configure.", bold = highlighting.bold)))?;
         let value = decode_schema_registry_message(message, schema_registry_facade).await?;
         Ok(Payload::Avro(value))
     } else if let Ok(message) = analyze_glue_message(payload) {
@@ -111,9 +119,14 @@ mod tests {
             &f,
         );
 
-        assert_eq!(parse_payload(None, &glue_facade, None, &h).await.unwrap(), Payload::Null);
         assert_eq!(
-            parse_payload(Some(&[]), &glue_facade, None, &h).await.unwrap(),
+            parse_payload(None, &glue_facade, None, &h).await.unwrap(),
+            Payload::Null
+        );
+        assert_eq!(
+            parse_payload(Some(&[]), &glue_facade, None, &h)
+                .await
+                .unwrap(),
             Payload::String("".to_string())
         );
         assert_eq!(
@@ -131,7 +144,9 @@ mod tests {
 
         let some_bytes = Uuid::new_v4().as_bytes().to_vec();
         assert_eq!(
-            parse_payload(Some(&some_bytes), &glue_facade, None, &h).await.unwrap(),
+            parse_payload(Some(&some_bytes), &glue_facade, None, &h)
+                .await
+                .unwrap(),
             Payload::Unknown(String::from_utf8_lossy(&some_bytes).to_string())
         );
     }
