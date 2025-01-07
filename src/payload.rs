@@ -1,5 +1,9 @@
+use crate::error::KiekError;
 use crate::glue::{analyze_glue_message, decode_glue_message, GlueSchemaRegistryFacade};
 use crate::highlight::{write_avro_value, write_json_value, write_null, Highlighting};
+use crate::schema_registry::{
+    analyze_schema_registry_message, decode_schema_registry_message, SchemaRegistryFacade,
+};
 use crate::Result;
 use std::fmt::Display;
 
@@ -15,6 +19,8 @@ pub enum Payload {
 pub async fn parse_payload(
     payload: Option<&[u8]>,
     glue_schema_registry_facade: &GlueSchemaRegistryFacade,
+    schema_registry_facade: Option<&SchemaRegistryFacade>,
+    highlighting: &Highlighting,
 ) -> Result<Payload> {
     match payload {
         None => Ok(Payload::Null),
@@ -22,7 +28,13 @@ pub async fn parse_payload(
             if payload.is_empty() {
                 Ok(Payload::String("".to_string()))
             } else {
-                parse_payload_bytes(payload, glue_schema_registry_facade).await
+                parse_payload_bytes(
+                    payload,
+                    glue_schema_registry_facade,
+                    schema_registry_facade,
+                    highlighting,
+                )
+                .await
             }
         }
     }
@@ -31,16 +43,23 @@ pub async fn parse_payload(
 async fn parse_payload_bytes(
     payload: &[u8],
     glue_schema_registry_facade: &GlueSchemaRegistryFacade,
+    schema_registry_facade: Option<&SchemaRegistryFacade>,
+    highlighting: &Highlighting,
 ) -> Result<Payload> {
-    if let Ok(string) = std::str::from_utf8(payload) {
+    if let Ok(message) = analyze_schema_registry_message(payload) {
+        let schema_registry_facade = schema_registry_facade.ok_or(
+            KiekError::new(format!("Received an AVRO encoded message without Schema Registry. Use {bold}--schema-registry-url{bold:#} to configure.", bold = highlighting.bold)))?;
+        let value = decode_schema_registry_message(message, schema_registry_facade).await?;
+        Ok(Payload::Avro(value))
+    } else if let Ok(message) = analyze_glue_message(payload) {
+        let value = decode_glue_message(message, glue_schema_registry_facade).await?;
+        Ok(Payload::Avro(value))
+    } else if let Ok(string) = std::str::from_utf8(payload) {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(string) {
             Ok(Payload::Json(value))
         } else {
             Ok(Payload::String(string.to_string()))
         }
-    } else if let Ok(message) = analyze_glue_message(payload) {
-        let value = decode_glue_message(message, glue_schema_registry_facade).await?;
-        Ok(Payload::Avro(value))
     } else {
         Ok(Payload::Unknown(
             String::from_utf8_lossy(payload).to_string(),
@@ -94,25 +113,30 @@ mod tests {
         let f = Feedback::prepare(&h, true);
         let credentials = Credentials::for_tests();
         let credentials_provider = SharedCredentialsProvider::new(credentials);
-        let facade = GlueSchemaRegistryFacade::new(
+        let glue_facade = GlueSchemaRegistryFacade::new(
             credentials_provider,
             Region::from_static("eu-central-1"),
             &f,
         );
 
-        assert_eq!(parse_payload(None, &facade).await.unwrap(), Payload::Null);
         assert_eq!(
-            parse_payload(Some(&[]), &facade).await.unwrap(),
+            parse_payload(None, &glue_facade, None, &h).await.unwrap(),
+            Payload::Null
+        );
+        assert_eq!(
+            parse_payload(Some(&[]), &glue_facade, None, &h)
+                .await
+                .unwrap(),
             Payload::String("".to_string())
         );
         assert_eq!(
-            parse_payload(Some("string".as_bytes()), &facade)
+            parse_payload(Some("string".as_bytes()), &glue_facade, None, &h)
                 .await
                 .unwrap(),
             Payload::String("string".to_string())
         );
         assert_eq!(
-            parse_payload(Some("\"string\"".as_bytes()), &facade)
+            parse_payload(Some("\"string\"".as_bytes()), &glue_facade, None, &h)
                 .await
                 .unwrap(),
             Payload::Json(serde_json::Value::String("string".into()))
@@ -120,7 +144,9 @@ mod tests {
 
         let some_bytes = Uuid::new_v4().as_bytes().to_vec();
         assert_eq!(
-            parse_payload(Some(&some_bytes), &facade).await.unwrap(),
+            parse_payload(Some(&some_bytes), &glue_facade, None, &h)
+                .await
+                .unwrap(),
             Payload::Unknown(String::from_utf8_lossy(&some_bytes).to_string())
         );
     }
