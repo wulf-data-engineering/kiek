@@ -91,6 +91,14 @@ pub struct Args {
     #[arg(long, aliases = ["pw"], requires = "username")]
     password: Option<Password>,
 
+    /// URL of the Confluent Schema Registry
+    ///
+    /// Used to decode AVRO messages with a Confluent Schema Registry id.
+    /// If credentials are set, kiek will use them for Basic Auth to the schema registry, too.
+    /// http://localhost:8081 is used as a default for local brokers.
+    #[arg(long)]
+    schema_registry_url: Option<String>,
+
     /// Optional specific AWS profile
     ///
     /// Used for MSK IAM authentication and Glue Schema Registry.
@@ -213,11 +221,13 @@ impl Args {
     }
 
     pub fn schema_registry_url(&self) -> Option<String> {
-        if is_local(&self.bootstrap_servers()) {
-            Some("http://localhost:8081".to_string())
-        } else {
-            None
-        }
+        self.schema_registry_url.clone().or_else(|| {
+            if is_local(&self.bootstrap_servers()) {
+                Some("http://localhost:8081".to_string())
+            } else {
+                None
+            }
+        })
     }
 
     pub fn username(&self) -> Option<String> {

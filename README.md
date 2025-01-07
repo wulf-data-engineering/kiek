@@ -51,10 +51,11 @@ without authentication and lists topics for selection.
 ### Follow a topic
 
 ```shell
-kiek some-topic
+kiek some-topic                           # local broker, starts at the beginning
+kiek some-topic -b kafka.example.com:9092 # remote broker, starts at the end
 ```
 
-Follows all partitions of _some-topic_ and prints all new messages
+Follows all partitions of _some-topic_ and prints all messages on a local broker and new messages on remote brokers.
 
 ### Follow a partition
 
@@ -98,11 +99,13 @@ Registry with the same credentials.
 
 ```shell
 kiek -b kafka.example.com:9092 --schema-registry-url https://schema-registry.example.com:8081
+kiek -b kafka.example.com:9092 --schema-registry-url https://schema-registry.example.com:8081 -u user          # uses Basic Auth
+kiek -b kafka.example.com:9092 --schema-registry-url https://schema-registry.example.com:8081 -u user:password # uses Basic Auth
 ```
 
-Default is `http://localhost:8081` if the broker is local, too.
+Default is `http://localhost:8081` if the broker is local.
 
-Supports no authentication for now.
+If credentials are provided to the broker, the credentials are passed via Basic Auth to the schema registry, too.
 
 ### Show the help
 
@@ -135,14 +138,13 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
 - Notarize macOS binary
     - pkg: https://stackoverflow.com/questions/43525852/create-pkg-installer-with-bare-executable
     - https://users.rust-lang.org/t/distributing-cli-apps-on-macos/70223
-- More Integration Testing
+- Integration Testing against Redpanda
 
 ### Increment Capabilities
 
 - Services
-    - Basic Auth (SASL PLAIN/SCRAM) for Schema Registry
     - Support OAuth (SASL OAUTHBEARER) via --token
-    - OAuth (SASL OAUTHBEARER) for Schema Registry
+    - OAuth (SASL OAUTHBEARER) for Schema Registry (Authorization: Bearer < --token >)
     - Add overrides for security settings for Schema Registry
     - Support non-string keys
 - UX

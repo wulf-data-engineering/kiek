@@ -100,7 +100,9 @@ async fn run(args: Args) -> Result<()> {
     let glue_schema_registry_facade =
         GlueSchemaRegistryFacade::new(credentials_provider.clone(), region.clone(), &feedback);
 
-    let schema_registry_facade = args.schema_registry_url().map(|url| SchemaRegistryFacade::new(url, &feedback));
+    let schema_registry_facade = args
+        .schema_registry_url()
+        .map(|url| SchemaRegistryFacade::new(url, credentials.clone(), &feedback));
 
     match authentication {
         Authentication::MskIam => {

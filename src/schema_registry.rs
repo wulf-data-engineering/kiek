@@ -1,7 +1,9 @@
+use crate::args::Password;
 use crate::feedback::Feedback;
 use crate::Result;
 use apache_avro::Schema;
-use log::{debug, info};
+use log::{debug, info, trace};
+use reqwest::Client;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
@@ -63,21 +65,25 @@ pub async fn decode_schema_registry_message<'a>(
 ///
 pub struct SchemaRegistryFacade {
     url: String,
+    credentials: Option<(String, Password)>,
+    client: Client,
     cache: Mutex<std::collections::HashMap<i32, Schema>>,
     feedback: Feedback,
 }
 
 #[derive(Deserialize)]
 struct SchemaRegistryResponse {
-    schema: String, // serde_json::Value,
+    schema: String,
 }
 
 impl SchemaRegistryFacade {
-    pub fn new(url: String, feedback: &Feedback) -> Self {
+    pub fn new(url: String, credentials: Option<(String, Password)>, feedback: &Feedback) -> Self {
         let feedback = feedback.clone();
 
         Self {
             url,
+            credentials,
+            client: Client::builder().build().unwrap(),
             cache: Mutex::new(std::collections::HashMap::new()),
             feedback,
         }
@@ -87,7 +93,7 @@ impl SchemaRegistryFacade {
         let mut cache = self.cache.lock().await;
 
         if let Some(schema) = cache.get(&schema_id) {
-            debug!("Schema cache hit for version {}", schema_id);
+            trace!("Schema cache hit for version {}", schema_id);
             return Ok(schema.clone());
         }
 
@@ -96,9 +102,19 @@ impl SchemaRegistryFacade {
 
         info!("Loading schema version {}.", schema_id);
 
-        let response =
-            reqwest::get(format!("{url}/schemas/ids/{schema_id}", url = self.url)).await?;
-        let response = response.error_for_status()?;
+        let mut request = self
+            .client
+            .get(format!("{url}/schemas/ids/{schema_id}", url = self.url));
+
+        if let Some((username, password)) = &self.credentials {
+            debug!(
+                "Using basic auth as {username}:{password} for {}.",
+                self.url
+            );
+            request = request.basic_auth(username, Some(password.plain()));
+        }
+
+        let response = request.send().await?.error_for_status()?;
         let response = response.text().await?;
         let response = serde_json::from_str::<SchemaRegistryResponse>(&response)?;
 
