@@ -6,7 +6,6 @@ use crate::kafka::{StartOffset, TopicOrPartition, DEFAULT_BROKER_STRING};
 use crate::Result;
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
-use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
 use std::error::Error;
@@ -14,6 +13,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::io::IsTerminal;
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::OnceLock;
 use termion::clear;
 
 #[derive(Parser, Debug)]
@@ -278,8 +278,9 @@ impl Args {
     }
 }
 
-lazy_static! {
-    static ref TOPIC_PARTITION_REGEX: Regex = Regex::new(r"^(.+)-([0-9]+)$").unwrap();
+fn topic_partition_regex() -> &'static Regex {
+    static TOPIC_PARTITION_REGEX: OnceLock<Regex> = OnceLock::new();
+    TOPIC_PARTITION_REGEX.get_or_init(|| Regex::new(r"^(.+)-([0-9]+)$").unwrap())
 }
 
 ///
@@ -289,7 +290,7 @@ impl FromStr for TopicOrPartition {
     type Err = String;
 
     fn from_str(string: &str) -> std::result::Result<Self, Self::Err> {
-        match TOPIC_PARTITION_REGEX.captures(string) {
+        match topic_partition_regex().captures(string) {
             Some(captures) => {
                 let topic = captures.get(1).unwrap().as_str().to_string();
                 let partition = captures.get(2).unwrap().as_str().parse().unwrap();
