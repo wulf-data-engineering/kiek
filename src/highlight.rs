@@ -2,9 +2,9 @@ use apache_avro::types::Value as AvroValue;
 use chrono::{DateTime, Datelike, NaiveDate};
 use clap::builder::styling::{AnsiColor, Color, Style};
 use dialoguer::theme::{ColorfulTheme, SimpleTheme, Theme};
-use lazy_static::lazy_static;
 use serde_json::Value as JsonValue;
 use std::fmt::{Display, Formatter};
+use std::sync::OnceLock;
 
 const PARTITION_COLOR_CODES: [u8; 12] = [124, 19, 29, 136, 63, 88, 27, 36, 214, 160, 69, 66];
 
@@ -134,7 +134,7 @@ pub(crate) fn write_avro_value(
         AvroValue::Null => write_keyword(f, "null", highlighting),
         AvroValue::Date(date) => write_string_value(
             f,
-            NaiveDate::from_num_days_from_ce_opt(*EPOCH_DAYS_OFFSET + date)
+            NaiveDate::from_num_days_from_ce_opt(*epoch_days_offset() + date)
                 .unwrap()
                 .to_string(),
             highlighting,
@@ -292,9 +292,14 @@ where
     )
 }
 
-lazy_static! {
+fn epoch_days_offset() -> &'static i32 {
     /// Number of days between the proleptic Gregorian calendar and the Unix epoch
-    static ref EPOCH_DAYS_OFFSET: i32 = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap().num_days_from_ce();
+    static EPOCH_DAYS_OFFSET: OnceLock<i32> = OnceLock::new();
+    EPOCH_DAYS_OFFSET.get_or_init(|| {
+        NaiveDate::from_ymd_opt(1970, 1, 1)
+            .unwrap()
+            .num_days_from_ce()
+    })
 }
 
 #[cfg(test)]

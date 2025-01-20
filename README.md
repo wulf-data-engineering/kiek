@@ -135,6 +135,7 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
 
 ### Publish
 
+- cargo nextest
 - Notarize macOS binary
     - pkg: https://stackoverflow.com/questions/43525852/create-pkg-installer-with-bare-executable
     - https://users.rust-lang.org/t/distributing-cli-apps-on-macos/70223
@@ -143,17 +144,19 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
 ### Increment Capabilities
 
 - Services
+    - **Support non-string keys**
     - Support OAuth (SASL OAUTHBEARER) via --token
     - OAuth (SASL OAUTHBEARER) for Schema Registry (Authorization: Bearer < --token >)
     - Add overrides for security settings for Schema Registry
-    - Support non-string keys
 - UX
     - Explain schema lookup failures
     - Indicate reached head of topic with --earliest
     - Topic Profiles / --env for environment profiles
-    - Ask for MFA token for SSO
+    - **Derive authentication / no-ssl default from ports**: https://docs.aws.amazon.com/msk/latest/developerguide/port-info.html
+    - Jump Host support
 - Navigation
-    - search since timestamp (fixed, relative)
+    - **--filter on key & payload with similar behavior to --key but on all partitions**
+    - **search from/to offset, timestamp (fixed, relative)**
     - Default limit and continue with <enter>
 - Output Formats
     - Key, Value, Timestamp, Offset, Partition, Topic

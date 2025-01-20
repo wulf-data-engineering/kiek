@@ -1,6 +1,6 @@
-use lazy_static::lazy_static;
 use regex::Regex;
 use std::error::Error;
+use std::sync::OnceLock;
 
 ///
 /// `KiekError` is a custom error type that can be used to wrap any error message.
@@ -12,9 +12,9 @@ pub(crate) struct KiekError {
     message: String,
 }
 
-lazy_static! {
-    static ref KAFKA_ERROR_REGEX: Regex =
-        Regex::new(r"^\[[^\]]+\]: [^ ]+: (.+) \(after .+\)$").unwrap();
+fn kafka_error_regex() -> &'static Regex {
+    static KAFKA_ERROR_REGEX: OnceLock<Regex> = OnceLock::new();
+    KAFKA_ERROR_REGEX.get_or_init(|| Regex::new(r"^\[[^\]]+\]: [^ ]+: (.+) \(after .+\)$").unwrap())
 }
 
 impl KiekError {
@@ -32,7 +32,7 @@ impl KiekError {
 
     fn user_friendly(fail: String) -> String {
         // Try to decompose the error message to the actual message
-        let fail = KAFKA_ERROR_REGEX
+        let fail = kafka_error_regex()
             .captures(&fail)
             .map_or_else(|| fail.clone(), |c| c[1].to_string());
         if fail.contains("SASL authentication error") && fail.contains("Access denied") {
