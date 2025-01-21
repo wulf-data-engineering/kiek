@@ -22,13 +22,13 @@ use termion::clear;
 /// messages with schemas in AWS Glue Schema Registry.
 /// kiek analyzes the message payloads in a topic, if necessary looks up corresponding AVRO schemas
 /// and prints the payloads to stdout in a human-readable format.
-#[command(version, about)]
+#[command(version, about, verbatim_doc_comment)]
 pub struct Args {
     /// Kafka topic/partition name
     ///
     /// If a topic name is provided, kiek will consume from all partitions.
     /// If a topic/partition (e.g. "topic-0") is provided, kiek will consume from the specific partition.
-    #[arg(value_name = "TOPIC/PARTITION")]
+    #[arg(value_name = "TOPIC/PARTITION", verbatim_doc_comment)]
     pub topic_or_partition: Option<TopicOrPartition>,
 
     /// Kafka cluster broker string
@@ -43,7 +43,13 @@ pub struct Args {
     /// latest on remote brokers.
     ///
     /// Please note: in compacted topics the n latest offsets may not exist!
-    #[arg(group = "start-offset", short, long, value_name = "earliest|latest|-n")]
+    #[arg(
+        group = "start-offset",
+        short,
+        long,
+        value_name = "earliest|latest|-n",
+        verbatim_doc_comment
+    )]
     offset: Option<StartOffset>,
 
     /// Short option for --offset=earliest: Start from the beginning of the topic
@@ -61,7 +67,7 @@ pub struct Args {
     /// kiek will just scan the partition that contains the key.
     /// Please note: this works only for the default partitioner. If you use a custom partitioner,
     /// you need to provide the topic/partition.
-    #[arg(short, long)]
+    #[arg(short, long, verbatim_doc_comment)]
     pub key: Option<String>,
 
     /// Specifies the authentication mechanism
@@ -69,7 +75,7 @@ pub struct Args {
     /// If omitted and -u, --username is set, assumes SASL/PLAIN authentication.
     /// If omitted and AWS related options are set, assumes MSK IAM authentication.
     /// Otherwise, no authentication is attempted.
-    #[arg(short, long, aliases = ["auth"], value_name = "plain|msk-iam|...")]
+    #[arg(short, long, aliases = ["auth"], value_name = "plain|msk-iam|...", verbatim_doc_comment)]
     authentication: Option<Authentication>,
 
     /// Username for SASL authentication
@@ -82,7 +88,9 @@ pub struct Args {
         long,
         aliases = ["user"],
         required_if_eq_any([("authentication", "plain"),("authentication", "sha256"), ("authentication", "sha512")]),
-        value_name = "USER[:PASSWORD]")]
+        value_name = "USER[:PASSWORD]",
+        verbatim_doc_comment)
+    ]
     username: Option<Username>,
 
     /// Password for SASL authentication
@@ -96,7 +104,7 @@ pub struct Args {
     /// Used to decode AVRO messages with a Confluent Schema Registry id.
     /// If credentials are set, kiek will use them for Basic Auth to the schema registry, too.
     /// http://localhost:8081 is used as a default for local brokers.
-    #[arg(long)]
+    #[arg(long, verbatim_doc_comment)]
     schema_registry_url: Option<String>,
 
     /// Optional specific AWS profile
@@ -104,7 +112,7 @@ pub struct Args {
     /// Used for MSK IAM authentication and Glue Schema Registry.
     /// If set but no authentication mechanism is specified, assumes MSK IAM authentication.
     /// If not set, $AWS_PROFILE or otherwise "default" is used.
-    #[arg(short, long, value_name = "default")]
+    #[arg(short, long, value_name = "default", verbatim_doc_comment)]
     pub profile: Option<String>,
 
     /// Optional specific AWS region
@@ -112,7 +120,7 @@ pub struct Args {
     /// Used for MSK IAM authentication and Glue Schema Registry.
     /// If set but no authentication mechanism is specified, assumes MSK IAM authentication.
     /// If not set, $AWS_REGION or otherwise "eu-central-1" is used.
-    #[arg(short, long, value_name = "eu-central-1")]
+    #[arg(short, long, value_name = "eu-central-1", verbatim_doc_comment)]
     pub region: Option<String>,
 
     /// Optional AWS role to assume for MSK IAM authentication and Glue Schema Registry
@@ -120,7 +128,7 @@ pub struct Args {
     /// Used for MSK IAM authentication and Glue Schema Registry.
     /// If set, the AWS credentials provider will assume the role.
     /// If set but no authentication mechanism is specified, assumes MSK IAM authentication.
-    #[arg(long)]
+    #[arg(long, verbatim_doc_comment)]
     pub role_arn: Option<String>,
 
     /// Deactivates syntax highlighting
@@ -128,7 +136,7 @@ pub struct Args {
     /// When running in a terminal kiek uses syntax highlighting for better readability.
     /// This option deactivates it if the terminal does not support colors.
     /// Piping the output to a file or another program automatically deactivates colors.
-    #[arg(long, action, aliases = ["plain"], hide_short_help = true)]
+    #[arg(long, action, aliases = ["plain"], hide_short_help = true, verbatim_doc_comment)]
     no_colors: bool,
 
     /// Omit everything but the Kafka messages
@@ -137,7 +145,14 @@ pub struct Args {
     /// Dialogs like asking for a topic name or schema registry URL are replaced with fatal errors.
     /// Piping the output to a file or another program is automatically silent.
     ///
-    #[arg(group = "verbosity", short, long, action, hide_short_help = true)]
+    #[arg(
+        group = "verbosity",
+        short,
+        long,
+        action,
+        hide_short_help = true,
+        verbatim_doc_comment
+    )]
     pub silent: bool,
 
     /// Activates logging on stdout
