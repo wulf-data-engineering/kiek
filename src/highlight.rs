@@ -27,8 +27,9 @@ pub struct Highlighting {
 
 impl Highlighting {
     /// No highlighting
-    pub fn plain() -> Self {
-        Self {
+    pub fn plain() -> &'static Highlighting {
+        static PLAIN: OnceLock<Highlighting> = OnceLock::new();
+        PLAIN.get_or_init(|| Self {
             colors: false,
             plain: Style::new(),
             bold: Style::new(),
@@ -41,12 +42,13 @@ impl Highlighting {
             string: Style::new(),
             number: Style::new(),
             keyword: Style::new(),
-        }
+        })
     }
 
     /// Color highlighting
-    pub fn colors() -> Self {
-        Self {
+    pub fn colors() -> &'static Highlighting {
+        static COLORS: OnceLock<Highlighting> = OnceLock::new();
+        COLORS.get_or_init(|| Self {
             colors: true,
             plain: Style::new(),
             bold: Style::new().bold(),
@@ -69,7 +71,7 @@ impl Highlighting {
             string: Style::new().fg_color(Some(Color::from(22))),
             number: Style::new().fg_color(Some(Color::from(19))),
             keyword: Style::new().fg_color(Some(Color::from(18))),
-        }
+        })
     }
 
     pub fn partition(&self, index: i32) -> &Style {
@@ -309,23 +311,23 @@ mod tests {
     use std::str::FromStr;
     struct JsonFormatting {
         value: JsonValue,
-        highlighting: Highlighting,
+        highlighting: &'static Highlighting,
     }
 
     impl Display for JsonFormatting {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            write_json_value(f, &self.value, &self.highlighting)
+            write_json_value(f, &self.value, self.highlighting)
         }
     }
 
     struct AvroFormatting {
         value: AvroValue,
-        highlighting: Highlighting,
+        highlighting: &'static Highlighting,
     }
 
     impl Display for AvroFormatting {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            write_avro_value(f, &self.value, &self.highlighting)
+            write_avro_value(f, &self.value, self.highlighting)
         }
     }
 

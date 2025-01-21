@@ -30,7 +30,7 @@ use crate::kafka::{
     select_topic_or_partition, FormatBootstrapServers, TopicOrPartition, DEFAULT_BROKER_STRING,
     DEFAULT_PORT,
 };
-use crate::payload::{format_payload, parse_payload};
+use crate::payload::{format_payload, parse_payload, Payload};
 use crate::schema_registry::SchemaRegistryFacade;
 use chrono::{DateTime, Local};
 use clap::CommandFactory;
@@ -86,7 +86,7 @@ async fn run(args: Args) -> Result<()> {
         ),
     );
 
-    verify_connection(&bootstrap_servers, &highlighting).await?;
+    verify_connection(&bootstrap_servers, highlighting).await?;
 
     feedback.info("Set up", "authentication");
 
@@ -157,7 +157,7 @@ async fn connect<C>(
 where
     C: KiekContext + 'static,
 {
-    kafka::connect(&consumer, &feedback.highlighting).await?;
+    kafka::connect(&consumer, feedback.highlighting).await?;
 
     let topic_or_partition: TopicOrPartition = match &args.topic_or_partition {
         Some(topic_or_partition) => topic_or_partition.clone(),
@@ -296,8 +296,8 @@ where
 
     *received_messages += batch_size;
 
-    // If scanning for a key print the no. of consumed messages to indicate consumption
-    if *received_messages > 0 && args.key.is_some() {
+    // If scanning for a key or filtering print the no. of consumed messages to indicate consumption
+    if *received_messages > 0 && args.filtering() {
         feedback.info("Consumed", format!("{received_messages} messages"));
     }
 
@@ -336,14 +336,23 @@ async fn process_record<'a>(
                 _ => {}
             }
 
-            let value = parse_payload(
+            let payload = parse_payload(
                 message.payload(),
                 glue_schema_registry_facade,
                 schema_registry_facade,
-                &feedback.highlighting,
+                feedback.highlighting,
             )
             .await?;
-            let value = format_payload(&value, &feedback.highlighting);
+
+            // Skip messages that don't contain the filter if configured
+            match &args.filter {
+                Some(filter) if !check_filter(message.payload(), &payload, filter) => {
+                    return Ok(1);
+                }
+                _ => {}
+            }
+
+            let value = format_payload(&payload, feedback.highlighting);
 
             let partition_style = feedback.highlighting.partition(message.partition());
             let partition_style_bold = partition_style.bold();
@@ -354,7 +363,7 @@ async fn process_record<'a>(
             let offset = message.offset();
 
             let timestamp =
-                format_timestamp(&message.timestamp(), start_date, &feedback.highlighting)
+                format_timestamp(&message.timestamp(), start_date, feedback.highlighting)
                     .unwrap_or("".to_string());
 
             feedback.clear();
@@ -466,6 +475,13 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
     }
 }
 
+fn check_filter(raw_payload: Option<&[u8]>, payload: &Payload, filter: &String) -> bool {
+    let raw_check = raw_payload
+        .map(|raw_payload| String::from_utf8_lossy(raw_payload).contains(filter))
+        .unwrap_or(false);
+    raw_check || format!("{}", format_payload(payload, Highlighting::plain())).contains(filter)
+}
+
 ///
 /// Generate shell completions for Zsh, Bash and Fish.
 /// This function is called when the program is invoked with the single argument "completions".
@@ -507,23 +523,98 @@ mod tests {
     async fn test_verify_connection() {
         let h = Highlighting::plain();
 
-        assert!(verify_connection("foo", &h).await.is_err());
-        assert!(verify_connection("foo:xs", &h).await.is_err());
-        assert!(verify_connection("foo:123456", &h).await.is_err());
+        assert!(verify_connection("foo", h).await.is_err());
+        assert!(verify_connection("foo:xs", h).await.is_err());
+        assert!(verify_connection("foo:123456", h).await.is_err());
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
 
-        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h)
+        assert!(verify_connection(&format!("127.0.0.1:{port}"), h)
             .await
             .is_ok());
 
         drop(listener); // disconnect
 
-        assert!(verify_connection(&format!("127.0.0.1:{port}"), &h)
+        assert!(verify_connection(&format!("127.0.0.1:{port}"), h)
             .await
             .is_err());
 
-        assert!(verify_connection("www.google.de:443", &h).await.is_ok());
+        assert!(verify_connection("www.google.de:443", h).await.is_ok());
+    }
+
+    #[test]
+    fn test_check_filter() {
+        assert!(check_filter(
+            Some(b"\"foo\": \"foo\""),
+            &Payload::Null,
+            &"\": \"".to_string()
+        ));
+
+        assert!(check_filter(Some(&[]), &Payload::Null, &"null".to_string()));
+        assert!(!check_filter(Some(&[]), &Payload::Null, &"foo".to_string()));
+
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::String("foo".to_string()),
+            &"foo".to_string()
+        ));
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::String("foo".to_string()),
+            &"fo".to_string()
+        ));
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::String("foo".to_string()),
+            &"oo".to_string()
+        ));
+        assert!(!check_filter(
+            Some(&[]),
+            &Payload::String("foo".to_string()),
+            &"\"foo\"".to_string()
+        ));
+
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::Json(serde_json::Value::String("foo".to_string())),
+            &"\"foo\"".to_string()
+        ));
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::Json(serde_json::Value::String("foo".to_string())),
+            &"\"f".to_string()
+        ));
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::Json(serde_json::Value::String("foo".to_string())),
+            &"oo\"".to_string()
+        ));
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::Json(serde_json::Value::String("foo".to_string())),
+            &"foo".to_string()
+        ));
+
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::Avro(apache_avro::types::Value::String("foo".to_string())),
+            &"\"foo\"".to_string()
+        ));
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::Avro(apache_avro::types::Value::String("foo".to_string())),
+            &"\"f".to_string()
+        ));
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::Avro(apache_avro::types::Value::String("foo".to_string())),
+            &"oo\"".to_string()
+        ));
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::Avro(apache_avro::types::Value::String("foo".to_string())),
+            &"foo".to_string()
+        ));
     }
 }
