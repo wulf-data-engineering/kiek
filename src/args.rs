@@ -70,6 +70,14 @@ pub struct Args {
     #[arg(short, long, verbatim_doc_comment)]
     pub key: Option<String>,
 
+    /// Optional filter to search in the payload
+    ///
+    /// If set, only messages containing the given filter as text are printed.
+    /// Advantage over piping the output to grep is that the progress is still indicated while
+    /// filtering.
+    #[arg(short, long, verbatim_doc_comment)]
+    pub filter: Option<String>,
+
     /// Specifies the authentication mechanism
     ///
     /// If omitted and -u, --username is set, assumes SASL/PLAIN authentication.
@@ -217,7 +225,7 @@ impl Args {
         !self.no_colors && std::io::stdout().is_terminal()
     }
 
-    pub fn highlighting(&self) -> Highlighting {
+    pub fn highlighting(&self) -> &'static Highlighting {
         if self.colors() {
             Highlighting::colors()
         } else {
@@ -226,7 +234,7 @@ impl Args {
     }
 
     pub fn feedback(&self) -> Feedback {
-        Feedback::prepare(&Highlighting::colors(), self.silent)
+        Feedback::prepare(Highlighting::colors(), self.silent)
     }
 
     pub fn bootstrap_servers(&self) -> String {
@@ -290,6 +298,10 @@ impl Args {
                 None => StartOffset::Latest,
             }
         }
+    }
+
+    pub fn filtering(&self) -> bool {
+        self.key.is_some() || self.filter.is_some()
     }
 }
 

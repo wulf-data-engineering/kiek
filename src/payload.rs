@@ -67,22 +67,22 @@ async fn parse_payload_bytes(
     }
 }
 
-pub fn format_payload<'a, 'b>(
+pub fn format_payload<'a>(
     payload: &'a Payload,
-    highlighting: &'b Highlighting,
-) -> PayloadFormatting<'a, 'b> {
+    highlighting: &'static Highlighting,
+) -> PayloadFormatting<'a> {
     PayloadFormatting {
         payload,
         highlighting,
     }
 }
 
-pub(crate) struct PayloadFormatting<'a, 'b> {
+pub(crate) struct PayloadFormatting<'a> {
     payload: &'a Payload,
-    highlighting: &'b Highlighting,
+    highlighting: &'static Highlighting,
 }
 
-impl Display for PayloadFormatting<'_, '_> {
+impl Display for PayloadFormatting<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self.payload {
             Payload::Null => write_null(f, self.highlighting),
@@ -110,7 +110,7 @@ mod tests {
     #[tokio::test]
     async fn test_parsing() {
         let h = Highlighting::plain();
-        let f = Feedback::prepare(&h, true);
+        let f = Feedback::prepare(h, true);
         let credentials = Credentials::for_tests();
         let credentials_provider = SharedCredentialsProvider::new(credentials);
         let glue_facade = GlueSchemaRegistryFacade::new(
@@ -120,23 +120,23 @@ mod tests {
         );
 
         assert_eq!(
-            parse_payload(None, &glue_facade, None, &h).await.unwrap(),
+            parse_payload(None, &glue_facade, None, h).await.unwrap(),
             Payload::Null
         );
         assert_eq!(
-            parse_payload(Some(&[]), &glue_facade, None, &h)
+            parse_payload(Some(&[]), &glue_facade, None, h)
                 .await
                 .unwrap(),
             Payload::String("".to_string())
         );
         assert_eq!(
-            parse_payload(Some("string".as_bytes()), &glue_facade, None, &h)
+            parse_payload(Some("string".as_bytes()), &glue_facade, None, h)
                 .await
                 .unwrap(),
             Payload::String("string".to_string())
         );
         assert_eq!(
-            parse_payload(Some("\"string\"".as_bytes()), &glue_facade, None, &h)
+            parse_payload(Some("\"string\"".as_bytes()), &glue_facade, None, h)
                 .await
                 .unwrap(),
             Payload::Json(serde_json::Value::String("string".into()))
@@ -144,7 +144,7 @@ mod tests {
 
         let some_bytes = Uuid::new_v4().as_bytes().to_vec();
         assert_eq!(
-            parse_payload(Some(&some_bytes), &glue_facade, None, &h)
+            parse_payload(Some(&some_bytes), &glue_facade, None, h)
                 .await
                 .unwrap(),
             Payload::Unknown(String::from_utf8_lossy(&some_bytes).to_string())
@@ -155,9 +155,9 @@ mod tests {
     fn test_formatting() {
         let h = Highlighting::plain();
 
-        assert_eq!(format!("{}", format_payload(&Payload::Null, &h)), "null");
+        assert_eq!(format!("{}", format_payload(&Payload::Null, h)), "null");
         assert_eq!(
-            format!("{}", format_payload(&Payload::String("string".into()), &h)),
+            format!("{}", format_payload(&Payload::String("string".into()), h)),
             "string"
         );
         assert_eq!(
@@ -165,7 +165,7 @@ mod tests {
                 "{}",
                 format_payload(
                     &Payload::Json(serde_json::Value::String("string".into())),
-                    &h
+                    h
                 )
             ),
             "\"string\""
@@ -175,13 +175,13 @@ mod tests {
                 "{}",
                 format_payload(
                     &Payload::Avro(apache_avro::types::Value::String("string".into())),
-                    &h
+                    h
                 )
             ),
             "\"string\""
         );
         assert_eq!(
-            format!("{}", format_payload(&Payload::Unknown("string".into()), &h)),
+            format!("{}", format_payload(&Payload::Unknown("string".into()), h)),
             "string"
         );
     }

@@ -2,7 +2,6 @@ use crate::highlight::Highlighting;
 use log::{info, warn};
 use std::cmp::max;
 use std::io::{IsTerminal, Write};
-use std::sync::Arc;
 use termion::clear;
 
 ///
@@ -10,10 +9,10 @@ use termion::clear;
 /// (running not silent in a terminal).
 ///
 impl Feedback {
-    pub(crate) fn prepare(highlighting: &Highlighting, silent: bool) -> Feedback {
+    pub(crate) fn prepare(highlighting: &'static Highlighting, silent: bool) -> Feedback {
         let interactive = !silent && std::io::stdout().is_terminal();
         Feedback {
-            highlighting: Arc::new(highlighting.clone()),
+            highlighting,
             interactive,
         }
     }
@@ -80,7 +79,7 @@ impl Feedback {
 
 #[derive(Clone)]
 pub(crate) struct Feedback {
-    pub(crate) highlighting: Arc<Highlighting>,
+    pub(crate) highlighting: &'static Highlighting,
     pub(crate) interactive: bool,
 }
 
