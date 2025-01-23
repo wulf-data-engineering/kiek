@@ -258,9 +258,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-glue"
-version = "1.77.0"
+version = "1.78.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8c4632c19617c6d6e922a9994ac1168cc3b4e8563d51b036fca560f34e1ab3b"
+checksum = "9b0a2785dfd0b440c60548abf920c1d1a79a60ab0dcc2747969e098d56dd8168"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -324,9 +324,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.55.0"
+version = "1.56.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33ef5b73a927ed80b44096f8c20fb4abae65469af15198367e179ae267256e9d"
+checksum = "07835598e52dd354368429cb2abf447ce523ea446d0a533a63cb42cd0d2d9280"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -1606,9 +1606,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.22"
+version = "0.4.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
+checksum = "04cbf5b083de1c7e0222a7a51dbfdba1cbe1c6ab0b15e29fff3f6c077fd9cd9f"
 
 [[package]]
 name = "memchr"
@@ -2910,9 +2910,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.12.0"
+version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "744018581f9a3454a9e15beb8a33b017183f1e7c0cd170232a2d1453b23a51c4"
+checksum = "b3758f5e68192bb96cc8f9b7e2c2cfdabb435499a28499a42f8f984092adad4b"
 dependencies = [
  "getrandom",
  "serde",
