@@ -155,7 +155,6 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
     - **Derive authentication / no-ssl default from ports**: https://docs.aws.amazon.com/msk/latest/developerguide/port-info.html
     - Jump Host support
 - Navigation
-    - **--filter on key & payload with similar behavior to --key but on all partitions**
     - **search from/to offset, timestamp (fixed, relative)**
     - Default limit and continue with <enter>
 - Output Formats

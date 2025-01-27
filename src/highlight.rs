@@ -93,6 +93,7 @@ impl Highlighting {
 pub(crate) fn write_json_value(
     f: &mut Formatter<'_>,
     value: &JsonValue,
+    indent: bool,
     highlighting: &Highlighting,
 ) -> std::fmt::Result {
     match value {
@@ -100,8 +101,12 @@ pub(crate) fn write_json_value(
         JsonValue::Bool(boolean) => write_keyword(f, *boolean, highlighting),
         JsonValue::Number(number) => write_number(f, number, highlighting),
         JsonValue::String(string) => write_string_value(f, string, highlighting),
-        JsonValue::Array(values) => write_array(f, values.iter(), write_json_value, highlighting),
-        JsonValue::Object(entries) => write_map(f, entries.iter(), write_json_value, highlighting),
+        JsonValue::Array(values) => {
+            write_array(f, values.iter(), write_json_value, indent, highlighting)
+        }
+        JsonValue::Object(entries) => {
+            write_map(f, entries.iter(), write_json_value, indent, highlighting)
+        }
     }
 }
 
@@ -111,6 +116,7 @@ pub(crate) fn write_json_value(
 pub(crate) fn write_avro_value(
     f: &mut Formatter<'_>,
     value: &AvroValue,
+    indent: bool,
     highlighting: &Highlighting,
 ) -> std::fmt::Result {
     match value {
@@ -118,12 +124,15 @@ pub(crate) fn write_avro_value(
             f,
             record.iter().map(|(k, v)| (k, v)),
             write_avro_value,
+            indent,
             highlighting,
         ),
-        AvroValue::Map(map) => write_map(f, map.iter(), write_avro_value, highlighting),
+        AvroValue::Map(map) => write_map(f, map.iter(), write_avro_value, indent, highlighting),
         AvroValue::Enum(_, symbol) => write_string_value(f, symbol, highlighting),
-        AvroValue::Union(_, value) => write_avro_value(f, value, highlighting),
-        AvroValue::Array(array) => write_array(f, array.iter(), write_avro_value, highlighting),
+        AvroValue::Union(_, value) => write_avro_value(f, value, indent, highlighting),
+        AvroValue::Array(array) => {
+            write_array(f, array.iter(), write_avro_value, indent, highlighting)
+        }
         AvroValue::Fixed(_, bytes) => write_string_value(f, format!("{:?}", bytes), highlighting),
         AvroValue::String(string) => write_string_value(f, string, highlighting),
         AvroValue::Bytes(bytes) => write_string_value(f, format!("{:?}", bytes), highlighting),
@@ -231,6 +240,7 @@ fn write_entries<'a, V: 'a, I, F>(
     prefix: &str,
     mut write_entry: F,
     suffix: &str,
+    indent: bool,
     highlighting: &Highlighting,
 ) -> std::fmt::Result
 where
@@ -242,30 +252,44 @@ where
     for entry in entries {
         if first {
             first = false;
+            write_padding(f, indent)?; // leading space if not empty
         } else {
-            f.write_str(",")?
+            f.write_str(",")?;
+            write_padding(f, indent)?;
         }
         write_entry(f, &entry, highlighting)?
     }
+    if !first {
+        write_padding(f, indent)?; // trailing space if not empty
+    }
     f.write_str(suffix)
+}
+
+fn write_padding(f: &mut Formatter, indent: bool) -> std::fmt::Result {
+    if indent {
+        f.write_str(" ")?
+    }
+    Ok(())
 }
 
 fn write_array<'a, V: 'a, I, F>(
     f: &mut Formatter<'_>,
     values: I,
     mut write_value: F,
+    indent: bool,
     highlighting: &Highlighting,
 ) -> std::fmt::Result
 where
     I: Iterator<Item = &'a V>,
-    F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
+    F: FnMut(&mut Formatter<'_>, &V, bool, &Highlighting) -> std::fmt::Result,
 {
     write_entries(
         f,
         values,
         "[",
-        |f, value, _| write_value(f, *value, highlighting),
+        |f, value, _| write_value(f, *value, indent, highlighting),
         "]",
+        indent,
         highlighting,
     )
 }
@@ -274,11 +298,12 @@ fn write_map<'a, V: 'a, I, F>(
     f: &mut Formatter<'_>,
     entries: I,
     mut write_value: F,
+    indent: bool,
     highlighting: &Highlighting,
 ) -> std::fmt::Result
 where
     I: Iterator<Item = (&'a String, &'a V)>,
-    F: FnMut(&mut Formatter<'_>, &V, &Highlighting) -> std::fmt::Result,
+    F: FnMut(&mut Formatter<'_>, &V, bool, &Highlighting) -> std::fmt::Result,
 {
     write_entries(
         f,
@@ -287,9 +312,13 @@ where
         |f, (key, value), _| {
             write_key(f, key, highlighting)?;
             f.write_str(":")?;
-            write_value(f, value, highlighting)
+            if indent {
+                f.write_str(" ")?;
+            }
+            write_value(f, value, indent, highlighting)
         },
         "}",
+        indent,
         highlighting,
     )
 }
@@ -311,23 +340,25 @@ mod tests {
     use std::str::FromStr;
     struct JsonFormatting {
         value: JsonValue,
+        indent: bool,
         highlighting: &'static Highlighting,
     }
 
     impl Display for JsonFormatting {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            write_json_value(f, &self.value, self.highlighting)
+            write_json_value(f, &self.value, self.indent, self.highlighting)
         }
     }
 
     struct AvroFormatting {
         value: AvroValue,
+        indent: bool,
         highlighting: &'static Highlighting,
     }
 
     impl Display for AvroFormatting {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            write_avro_value(f, &self.value, self.highlighting)
+            write_avro_value(f, &self.value, self.indent, self.highlighting)
         }
     }
 
@@ -349,6 +380,7 @@ mod tests {
             "{}",
             JsonFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::plain()
             }
         );
@@ -357,11 +389,25 @@ mod tests {
             "{\"age\":25,\"city\":\"San Francisco\",\"name\":\"Jane Doe\"}"
         );
 
+        let formatted = format!(
+            "{}",
+            JsonFormatting {
+                value: value.clone(),
+                indent: true,
+                highlighting: Highlighting::plain()
+            }
+        );
+        assert_eq!(
+            formatted,
+            "{ \"age\": 25, \"city\": \"San Francisco\", \"name\": \"Jane Doe\" }"
+        );
+
         // make sure the last ANSI code is a reset code
         let formatted = format!(
             "{}",
             JsonFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::colors()
             }
         );
@@ -388,6 +434,7 @@ mod tests {
             "{}",
             AvroFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::plain()
             }
         );
@@ -396,11 +443,25 @@ mod tests {
             "{\"name\":\"Jane Doe\",\"age\":25,\"city\":\"San Francisco\"}"
         );
 
+        let formatted = format!(
+            "{}",
+            AvroFormatting {
+                value: value.clone(),
+                indent: true,
+                highlighting: Highlighting::plain()
+            }
+        );
+        assert_eq!(
+            formatted,
+            "{ \"name\": \"Jane Doe\", \"age\": 25, \"city\": \"San Francisco\" }"
+        );
+
         // make sure the last ANSI code is a reset code
         let formatted = format!(
             "{}",
             AvroFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::colors()
             }
         );
@@ -414,6 +475,7 @@ mod tests {
             "{}",
             AvroFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::plain()
             }
         );
@@ -424,6 +486,7 @@ mod tests {
             "{}",
             AvroFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::plain()
             }
         );
@@ -434,6 +497,7 @@ mod tests {
             "{}",
             AvroFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::plain()
             }
         );
@@ -444,6 +508,7 @@ mod tests {
             "{}",
             AvroFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::plain()
             }
         );
@@ -454,6 +519,7 @@ mod tests {
             "{}",
             AvroFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::plain()
             }
         );
@@ -464,6 +530,7 @@ mod tests {
             "{}",
             AvroFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::plain()
             }
         );
@@ -474,6 +541,7 @@ mod tests {
             "{}",
             AvroFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::plain()
             }
         );
@@ -485,6 +553,7 @@ mod tests {
             "{}",
             AvroFormatting {
                 value: value.clone(),
+                indent: false,
                 highlighting: Highlighting::plain()
             }
         );
