@@ -69,16 +69,19 @@ async fn parse_payload_bytes(
 
 pub fn format_payload<'a>(
     payload: &'a Payload,
+    indent: bool,
     highlighting: &'static Highlighting,
 ) -> PayloadFormatting<'a> {
     PayloadFormatting {
         payload,
+        indent,
         highlighting,
     }
 }
 
 pub(crate) struct PayloadFormatting<'a> {
     payload: &'a Payload,
+    indent: bool,
     highlighting: &'static Highlighting,
 }
 
@@ -87,8 +90,8 @@ impl Display for PayloadFormatting<'_> {
         match self.payload {
             Payload::Null => write_null(f, self.highlighting),
             Payload::String(string) => write!(f, "{string}"),
-            Payload::Json(value) => write_json_value(f, value, self.highlighting),
-            Payload::Avro(value) => write_avro_value(f, value, self.highlighting),
+            Payload::Json(value) => write_json_value(f, value, self.indent, self.highlighting),
+            Payload::Avro(value) => write_avro_value(f, value, self.indent, self.highlighting),
             Payload::Unknown(string) => write!(
                 f,
                 "{style}{string}{style:#}",
@@ -155,9 +158,15 @@ mod tests {
     fn test_formatting() {
         let h = Highlighting::plain();
 
-        assert_eq!(format!("{}", format_payload(&Payload::Null, h)), "null");
         assert_eq!(
-            format!("{}", format_payload(&Payload::String("string".into()), h)),
+            format!("{}", format_payload(&Payload::Null, false, h)),
+            "null"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                format_payload(&Payload::String("string".into()), false, h)
+            ),
             "string"
         );
         assert_eq!(
@@ -165,6 +174,7 @@ mod tests {
                 "{}",
                 format_payload(
                     &Payload::Json(serde_json::Value::String("string".into())),
+                    false,
                     h
                 )
             ),
@@ -175,13 +185,17 @@ mod tests {
                 "{}",
                 format_payload(
                     &Payload::Avro(apache_avro::types::Value::String("string".into())),
+                    false,
                     h
                 )
             ),
             "\"string\""
         );
         assert_eq!(
-            format!("{}", format_payload(&Payload::Unknown("string".into()), h)),
+            format!(
+                "{}",
+                format_payload(&Payload::Unknown("string".into()), false, h)
+            ),
             "string"
         );
     }

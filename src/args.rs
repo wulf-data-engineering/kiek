@@ -139,6 +139,12 @@ pub struct Args {
     #[arg(long, verbatim_doc_comment)]
     pub role_arn: Option<String>,
 
+    /// Indent JSON output
+    ///
+    /// Adds indentation to JSON and JSON representation for AVRO for better readability.
+    #[arg(short, long)]
+    pub indent: bool,
+
     /// Deactivates syntax highlighting
     ///
     /// When running in a terminal kiek uses syntax highlighting for better readability.

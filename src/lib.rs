@@ -229,7 +229,10 @@ where
                     if reconnects > 25 {
                         return Err(KiekError::new("Too many reconnection attempts. Aborting."));
                     } else if reconnects >= 4 {
-                        feedback.info("Reconnecting", format!("to broker in {reconnects} attempt"));
+                        feedback.info(
+                            "Reconnecting",
+                            format!("to broker in {reconnects}th attempt"),
+                        );
                     } else {
                         feedback.info("Reconnecting", "to broker");
                     }
@@ -343,13 +346,13 @@ async fn process_record<'a>(
 
             // Skip messages that don't contain the filter if configured
             match &args.filter {
-                Some(filter) if !check_filter(message.payload(), &payload, filter) => {
+                Some(filter) if !check_filter(message.payload(), &payload, args.indent, filter) => {
                     return Ok(1);
                 }
                 _ => {}
             }
 
-            let value = format_payload(&payload, feedback.highlighting);
+            let value = format_payload(&payload, args.indent, feedback.highlighting);
 
             let partition_style = feedback.highlighting.partition(message.partition());
             let partition_style_bold = partition_style.bold();
@@ -472,11 +475,17 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
     }
 }
 
-fn check_filter(raw_payload: Option<&[u8]>, payload: &Payload, filter: &String) -> bool {
+fn check_filter(
+    raw_payload: Option<&[u8]>,
+    payload: &Payload,
+    indent: bool,
+    filter: &String,
+) -> bool {
     let raw_check = raw_payload
         .map(|raw_payload| String::from_utf8_lossy(raw_payload).contains(filter))
         .unwrap_or(false);
-    raw_check || format!("{}", format_payload(payload, Highlighting::plain())).contains(filter)
+    raw_check
+        || format!("{}", format_payload(payload, indent, Highlighting::plain())).contains(filter)
 }
 
 ///
@@ -545,72 +554,95 @@ mod tests {
         assert!(check_filter(
             Some(b"\"foo\": \"foo\""),
             &Payload::Null,
+            false,
             &"\": \"".to_string()
         ));
 
-        assert!(check_filter(Some(&[]), &Payload::Null, &"null".to_string()));
-        assert!(!check_filter(Some(&[]), &Payload::Null, &"foo".to_string()));
+        assert!(check_filter(
+            Some(&[]),
+            &Payload::Null,
+            false,
+            &"null".to_string()
+        ));
+        assert!(!check_filter(
+            Some(&[]),
+            &Payload::Null,
+            false,
+            &"foo".to_string()
+        ));
 
         assert!(check_filter(
             Some(&[]),
             &Payload::String("foo".to_string()),
+            false,
             &"foo".to_string()
         ));
         assert!(check_filter(
             Some(&[]),
             &Payload::String("foo".to_string()),
+            false,
             &"fo".to_string()
         ));
         assert!(check_filter(
             Some(&[]),
             &Payload::String("foo".to_string()),
+            false,
             &"oo".to_string()
         ));
         assert!(!check_filter(
             Some(&[]),
             &Payload::String("foo".to_string()),
+            false,
             &"\"foo\"".to_string()
         ));
 
         assert!(check_filter(
             Some(&[]),
             &Payload::Json(serde_json::Value::String("foo".to_string())),
+            false,
             &"\"foo\"".to_string()
         ));
         assert!(check_filter(
             Some(&[]),
             &Payload::Json(serde_json::Value::String("foo".to_string())),
+            false,
             &"\"f".to_string()
         ));
         assert!(check_filter(
             Some(&[]),
             &Payload::Json(serde_json::Value::String("foo".to_string())),
+            false,
             &"oo\"".to_string()
         ));
         assert!(check_filter(
             Some(&[]),
             &Payload::Json(serde_json::Value::String("foo".to_string())),
+            false,
             &"foo".to_string()
         ));
 
         assert!(check_filter(
             Some(&[]),
             &Payload::Avro(apache_avro::types::Value::String("foo".to_string())),
+            false,
             &"\"foo\"".to_string()
         ));
         assert!(check_filter(
             Some(&[]),
             &Payload::Avro(apache_avro::types::Value::String("foo".to_string())),
+            false,
             &"\"f".to_string()
         ));
         assert!(check_filter(
             Some(&[]),
             &Payload::Avro(apache_avro::types::Value::String("foo".to_string())),
+            false,
             &"oo\"".to_string()
         ));
         assert!(check_filter(
             Some(&[]),
             &Payload::Avro(apache_avro::types::Value::String("foo".to_string())),
+            false,
             &"foo".to_string()
         ));
     }
