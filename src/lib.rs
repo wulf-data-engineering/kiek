@@ -13,7 +13,7 @@ mod schema_registry;
 use std::error::Error;
 use std::fs::File;
 use std::io;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 
 pub type Result<T> = core::result::Result<T, Box<dyn Error + Send + Sync>>;
 pub(crate) type CoreResult<T> = core::result::Result<T, Box<dyn Error>>;
@@ -45,7 +45,6 @@ use reachable::TcpTarget;
 use simple_logger::SimpleLogger;
 use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -259,12 +258,12 @@ where
     // Await the next message which is most likely the beginning of a new batch
     let awaited_record = consumer.recv().await;
 
-    // Buffer the output of the batch
-    let buffer = Arc::new(Mutex::new(Vec::<u8>::with_capacity(128 * 1024)));
+    let mut lock = io::stdout().lock();
+    let mut out = BufWriter::new(&mut lock);
 
     let mut batch_size = process_record(
         args,
-        buffer.clone(),
+        &mut out,
         awaited_record,
         glue_schema_registry_facade,
         schema_registry_facade,
@@ -280,7 +279,7 @@ where
             Some(record) => {
                 batch_size += process_record(
                     args,
-                    buffer.clone(),
+                    &mut out,
                     record,
                     glue_schema_registry_facade,
                     schema_registry_facade,
@@ -291,8 +290,6 @@ where
             }
         }
     }
-
-    io::stdout().write_all(buffer.lock().unwrap().as_slice())?;
 
     *received_messages += batch_size;
 
@@ -307,7 +304,7 @@ where
 
 async fn process_record<'a>(
     args: &Args,
-    buffer: Arc<Mutex<Vec<u8>>>,
+    out: &mut BufWriter<impl Write>,
     record: core::result::Result<BorrowedMessage<'a>, KafkaError>,
     glue_schema_registry_facade: &GlueSchemaRegistryFacade,
     schema_registry_facade: Option<&SchemaRegistryFacade>,
@@ -368,7 +365,7 @@ async fn process_record<'a>(
 
             feedback.clear();
 
-            writeln!(buffer.lock().unwrap(), "{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}")?;
+            writeln!(out, "{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}")?;
             Ok(1)
         }
     }

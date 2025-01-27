@@ -23,7 +23,7 @@ jobs:
       - name: cargo check
         run: cargo check
       - name: cargo clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy # -- -D warnings <- clippy & compiler are not in sync
       - name: Build
         run: cargo build --locked
       - name: Test
