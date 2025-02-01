@@ -336,6 +336,14 @@ async fn process_record<'a>(
                 _ => {}
             }
 
+            let key = parse_payload(
+                message.key(),
+                glue_schema_registry_facade,
+                schema_registry_facade,
+                feedback.highlighting,
+            )
+            .await?;
+
             let payload = parse_payload(
                 message.payload(),
                 glue_schema_registry_facade,
@@ -346,13 +354,18 @@ async fn process_record<'a>(
 
             // Skip messages that don't contain the filter if configured
             match &args.filter {
-                Some(filter) if !check_filter(message.payload(), &payload, args.indent, filter) => {
+                Some(filter)
+                    if !(check_filter(message.key(), &key, args.indent, filter)
+                        || check_filter(message.payload(), &payload, args.indent, filter)) =>
+                {
                     return Ok(1);
                 }
                 _ => {}
             }
 
-            let value = format_payload(&payload, args.indent, feedback.highlighting);
+            let key = format_payload(&key, args.indent, feedback.highlighting);
+
+            let payload = format_payload(&payload, args.indent, feedback.highlighting);
 
             let partition_style = feedback.highlighting.partition(message.partition());
             let partition_style_bold = partition_style.bold();
@@ -368,7 +381,7 @@ async fn process_record<'a>(
 
             feedback.clear();
 
-            writeln!(out, "{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {value}")?;
+            writeln!(out, "{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {payload}")?;
             Ok(1)
         }
     }
@@ -475,17 +488,12 @@ async fn verify_connection(bootstrap_servers: &str, highlighting: &Highlighting)
     }
 }
 
-fn check_filter(
-    raw_payload: Option<&[u8]>,
-    payload: &Payload,
-    indent: bool,
-    filter: &String,
-) -> bool {
-    let raw_check = raw_payload
+fn check_filter(raw_value: Option<&[u8]>, value: &Payload, indent: bool, filter: &String) -> bool {
+    let raw_check = raw_value
         .map(|raw_payload| String::from_utf8_lossy(raw_payload).contains(filter))
         .unwrap_or(false);
     raw_check
-        || format!("{}", format_payload(payload, indent, Highlighting::plain())).contains(filter)
+        || format!("{}", format_payload(value, indent, Highlighting::plain())).contains(filter)
 }
 
 ///
