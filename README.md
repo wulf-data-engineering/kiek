@@ -55,7 +55,8 @@ kiek some-topic                           # local broker, starts at the beginnin
 kiek some-topic -b kafka.example.com:9092 # remote broker, starts at the end
 ```
 
-Follows all partitions of _some-topic_ and prints all messages on a local broker and new messages on remote brokers.
+Follows all partitions of _some-topic_.  
+On a local broker, it starts at the beginning of the topic, on a remote broker at the end.
 
 ### Follow a partition
 
@@ -63,7 +64,9 @@ Follows all partitions of _some-topic_ and prints all messages on a local broker
 kiek some-topic-1 -o=-5
 ```
 
-Follows partition _1_ of _some-topic_ and prints the newest five and all newer messages.
+If you add a partition number to the topic name, it follows only that partition: partition _1_ of _some-topic_.  
+The **--offset**, **-o** option sets the offset to start from.
+`-5` starts five messages before the end of the topic. `earliest` and `latest` are also valid.
 
 ### Scan for a key
 
@@ -71,17 +74,35 @@ Follows partition _1_ of _some-topic_ and prints the newest five and all newer m
 kiek some-topic -o=beginning -k=some-key
 ```
 
+If you are looking for a specific key, you can scan the topic for it.
+kiek will calculate the partition for the key, follow that partition and print all messages with that key.
+
+**Please note:** That requires the default partitioning strategy of Kafka (Murmur2). If you use a different strategy,
+you have to calculate the partition yourself.
+
+### Filter messages
+
+```shell
+kiek some-topic -o=beginning -f="some value"
+```
+The **--filter**, **-f** option lets kiek just print messages that contain the value.  
+For string payloads it is a simple substring search, for AVRO payloads it is a check on the JSON representation.
+
 ### Authenticate at remote broker
 
 ```shell
-kiek -b kafka.example.com:9092 -u alice          # uses SASL/PLAIN
-kiek -b kafka.example.com:9092 -u alice:password # uses SASL/PLAIN
+kiek -b kafka.example.com:9092 -u alice             # uses SASL/PLAIN
+kiek -b kafka.example.com:9092 -u alice:password    # uses SASL/PLAIN
+kiek -b kafka.example.com:9092 -u alice -p password # uses SASL/PLAIN
 kiek -b kafka.example.com:9092 -u alice -a plain
 kiek -b kafka.example.com:9092 -u alice -a sha256
 kiek -b kafka.example.com:9092 -u alice -a sha512
 ```
 
-Prompts for password if not provided.
+If you connect to a remote broker, you most likely need to authenticate.
+kiek supports the standard Kafka mechanisms SASL/PLAIN, SASL/SCRAM-SHA-256 and SASL/SCRAM-SHA-512 for now.
+
+kiek will prompt for a password if you have not provided it.
 
 ### Authenticate at AWS MSK
 
@@ -89,11 +110,16 @@ Prompts for password if not provided.
 kiek -b kafka.example.com:9092 -a msk-iam                   # uses the default profile
 kiek -b kafka.example.com:9092 -p my-profile
 kiek -b kafka.example.com:9092 -p my-profile --role my-role # assumes the role
+kiek -b kafka.example.com:9092 -p my-profile -r eu-east-1
 ```
 
-Checks if SSO is involved and the token expired.  
-If a message payload is binary and contains a header and schema id, it looks up the AVRO schema in AWS Glue Schema
-Registry with the same credentials.
+If you connect to an AWS MSK cluster, you can use the `msk-iam` authentication method.  
+The MSK IAM authentication is also assumed if you pass the **--profile**, **-p** option for an AWS profile.
+
+kiek checks if SSO is involved and informs you if the token expired.
+
+If kiek encounters a binary payload in the AVRO format of the AWS Glue Schema Registry (a header and schema id), it
+looks up the AVRO schema in the same AWS account.
 
 ### Configure Confluent Schema Registry
 
@@ -102,6 +128,9 @@ kiek -b kafka.example.com:9092 --schema-registry-url https://schema-registry.exa
 kiek -b kafka.example.com:9092 --schema-registry-url https://schema-registry.example.com:8081 -u user          # uses Basic Auth
 kiek -b kafka.example.com:9092 --schema-registry-url https://schema-registry.example.com:8081 -u user:password # uses Basic Auth
 ```
+
+If kiek encounters a binary payload in the AVRO format of the Confluent Schema Registry, it looks up the schema in the
+configured registry.
 
 Default is `http://localhost:8081` if the broker is local.
 
