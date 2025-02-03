@@ -83,10 +83,10 @@ you have to calculate the partition yourself.
 ### Filter messages
 
 ```shell
-kiek some-topic -o=beginning -f="some value"
+kiek some-topic -o=beginning -f="some string"
 ```
-The **--filter**, **-f** option lets kiek just print messages that contain the value.  
-For string payloads it is a simple substring search, for AVRO payloads it is a check on the JSON representation.
+The **--filter**, **-f** option lets kiek just print messages that contain a string in key or payload.  
+For string values it is a simple substring search, for AVRO payloads it is a check on the JSON representation.
 
 ### Authenticate at remote broker
 
@@ -173,7 +173,6 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
 ### Increment Capabilities
 
 - Services
-    - **Support non-string keys**
     - Support OAuth (SASL OAUTHBEARER) via --token
     - OAuth (SASL OAUTHBEARER) for Schema Registry (Authorization: Bearer < --token >)
     - Add overrides for security settings for Schema Registry
