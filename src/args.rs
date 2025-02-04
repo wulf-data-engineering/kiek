@@ -61,6 +61,10 @@ pub struct Args {
     #[arg(group = "start-offset", short, long, action, hide_short_help = true)]
     latest: bool,
 
+    /// Consumer stops after consuming n messages
+    #[arg(long, aliases = ["limit"], value_name = "n")]
+    max: Option<usize>,
+
     /// Optional key to search scanning just the partition with the key
     ///
     /// If set, only messages with the given key are printed.
@@ -304,6 +308,10 @@ impl Args {
                 None => StartOffset::Latest,
             }
         }
+    }
+
+    pub fn max(&self) -> usize {
+        self.max.unwrap_or(usize::MAX)
     }
 
     pub fn filtering(&self) -> bool {
