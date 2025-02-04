@@ -243,6 +243,10 @@ where
                 }
             }
         }
+
+        if received_messages >= args.max() {
+            break Ok(());
+        }
     }
 }
 
@@ -264,7 +268,7 @@ where
     let mut lock = io::stdout().lock();
     let mut out = BufWriter::new(&mut lock);
 
-    let mut batch_size = process_record(
+    *received_messages += process_record(
         args,
         &mut out,
         awaited_record,
@@ -276,11 +280,11 @@ where
     .await?;
 
     // As long as there are messages in the batch, process them immediately without writing to the terminal
-    loop {
+    while *received_messages < args.max() {
         match consumer.recv().now_or_never() {
             None => break,
             Some(record) => {
-                batch_size += process_record(
+                *received_messages += process_record(
                     args,
                     &mut out,
                     record,
@@ -294,9 +298,6 @@ where
         }
     }
 
-    *received_messages += batch_size;
-
-    // If scanning for a key or filtering print the no. of consumed messages to indicate consumption
     if *received_messages > 0 && args.filtering() {
         feedback.info("Consumed", format!("{received_messages} messages"));
     }
