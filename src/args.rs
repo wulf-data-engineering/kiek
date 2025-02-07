@@ -244,7 +244,7 @@ impl Args {
     }
 
     pub fn feedback(&self) -> Feedback {
-        Feedback::prepare(Highlighting::colors(), self.silent)
+        Feedback::prepare(self.highlighting(), self.silent)
     }
 
     pub fn bootstrap_servers(&self) -> String {
