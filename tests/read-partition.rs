@@ -1,6 +1,7 @@
 use assert_cmd::prelude::*;
 use assertables::{assert_ends_with, assert_starts_with};
 use futures::future::join_all;
+use murmur2::{murmur2, KAFKA_SEED};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;
@@ -137,6 +138,62 @@ async fn empty_topic(topic_name: &str, partitions: i32) -> Result<(), Box<dyn st
     Ok(())
 }
 
+#[tokio::test]
+async fn scan_for_key() -> Result<(), Box<dyn std::error::Error>> {
+    let topic_name = "scan_for_key";
+
+    fn partition_for_key(key: &str, partitions: usize) -> usize {
+        let hash = murmur2(key.as_bytes(), KAFKA_SEED);
+        let hash = hash & 0x7fffffff; // "to positive" from Kafka's partitioner
+        (hash % partitions as u32) as usize
+    }
+
+    let scanned_key = "a";
+    let scanned_key_partition = partition_for_key(scanned_key, 2);
+    let similar_partition_key = "b";
+    let other_partition_key = "d";
+
+    // assume
+    assert_eq!(
+        scanned_key_partition,
+        partition_for_key(similar_partition_key, 2)
+    );
+    assert_ne!(
+        scanned_key_partition,
+        partition_for_key(other_partition_key, 2)
+    );
+
+    empty_topic(topic_name, 2).await?;
+
+    produce_messages(
+        topic_name,
+        vec![
+            (similar_partition_key, "value"),
+            (other_partition_key, "value"),
+            (scanned_key, "value"),
+        ],
+    )
+    .await?;
+
+    let mut cmd = Command::cargo_bin("kiek")?;
+
+    cmd.arg(topic_name);
+    cmd.arg("--no-colors");
+    cmd.arg("--max=2");
+    cmd.arg(format!("--key={scanned_key}"));
+
+    let output = cmd.output()?;
+    let output = String::from_utf8(output.stdout)?;
+
+    let lines: Vec<&str> = output.lines().collect();
+
+    assert_eq!(lines.len(), 1);
+    assert_starts_with!(lines[0], format!("{topic_name}-{scanned_key_partition}"));
+    assert_ends_with!(lines[0], format!(" {scanned_key} value"));
+
+    Ok(())
+}
+
 async fn produce_messages<I>(
     topic_name: &str,
     messages: I,
@@ -146,6 +203,7 @@ where
 {
     let mut client_config = ClientConfig::new();
     client_config.set("bootstrap.servers", "127.0.0.1:9092");
+    client_config.set("partitioner", "murmur2_random"); // the Java client partitioner
 
     let producer: FutureProducer = client_config.create()?;
 

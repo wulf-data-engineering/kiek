@@ -69,8 +69,9 @@ pub struct Args {
     ///
     /// If set, only messages with the given key are printed.
     /// kiek will just scan the partition that contains the key.
-    /// Please note: this works only for the default partitioner. If you use a custom partitioner,
-    /// you need to provide the topic/partition.
+    /// Please note: this works only for the Java client default partitioner (murmur2 hash).
+    /// If you use another partitioner (custom partitioner or the different default partitioner
+    /// from librdkafka), you need to provide the topic/partition.
     #[arg(short, long, verbatim_doc_comment)]
     pub key: Option<String>,
 
