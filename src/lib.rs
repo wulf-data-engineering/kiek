@@ -332,6 +332,7 @@ async fn process_record<'a>(
             // Skip messages that don't match the key if a key is scanned for
             match &args.key {
                 Some(search_key) if !search_key.eq(&key) => {
+                    debug!("Skipping message with key {key}.");
                     return Ok(1);
                 }
                 _ => {}
@@ -359,6 +360,7 @@ async fn process_record<'a>(
                     if !(check_filter(message.key(), &key, args.indent, filter)
                         || check_filter(message.payload(), &payload, args.indent, filter)) =>
                 {
+                    debug!("Skipping message that does not match filter.");
                     return Ok(1);
                 }
                 _ => {}
@@ -369,8 +371,9 @@ async fn process_record<'a>(
             let payload = format_payload(&payload, args.indent, feedback.highlighting);
 
             let partition_style = feedback.highlighting.partition(message.partition());
-            let partition_style_bold = partition_style.bold();
-            let separator_style = partition_style.dimmed();
+            let partition_style_bold = feedback.highlighting.partition_bold(message.partition());
+            let partition_style_dimmed =
+                feedback.highlighting.partition_dimmed(message.partition());
 
             let topic = message.topic();
             let partition = message.partition();
@@ -382,7 +385,7 @@ async fn process_record<'a>(
 
             feedback.clear();
 
-            writeln!(out, "{partition_style}{topic}{partition_style:#}{separator_style}-{separator_style:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {payload}")?;
+            writeln!(out, "{partition_style}{topic}{partition_style:#}{partition_style_dimmed}-{partition_style_dimmed:#}{partition_style}{partition}{partition_style:#} {timestamp} {partition_style_bold}{offset}{partition_style_bold:#} {key} {payload}")?;
             Ok(1)
         }
     }
