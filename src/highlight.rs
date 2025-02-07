@@ -19,6 +19,8 @@ pub struct Highlighting {
     pub warning: Style,
     pub error: Style,
     pub partition_styles: Vec<Style>,
+    pub partition_styles_bold: Vec<Style>,
+    pub partition_styles_dimmed: Vec<Style>,
     pub key: Style,
     pub string: Style,
     pub number: Style,
@@ -38,6 +40,8 @@ impl Highlighting {
             warning: Style::new(),
             error: Style::new(),
             partition_styles: vec![Style::new()],
+            partition_styles_bold: vec![Style::new()],
+            partition_styles_dimmed: vec![Style::new()],
             key: Style::new(),
             string: Style::new(),
             number: Style::new(),
@@ -48,34 +52,53 @@ impl Highlighting {
     /// Color highlighting
     pub fn colors() -> &'static Highlighting {
         static COLORS: OnceLock<Highlighting> = OnceLock::new();
-        COLORS.get_or_init(|| Self {
-            colors: true,
-            plain: Style::new(),
-            bold: Style::new().bold(),
-            dimmed: Style::new().dimmed(),
-            success: Style::new()
-                .fg_color(Some(Color::Ansi(AnsiColor::Green)))
-                .bold(),
-            warning: Style::new()
-                .fg_color(Some(Color::Ansi(AnsiColor::Yellow)))
-                .bold(),
-            error: Style::new()
-                .fg_color(Some(Color::Ansi(AnsiColor::Red)))
-                .bold(),
-            partition_styles: PARTITION_COLOR_CODES
+        COLORS.get_or_init(|| {
+            let partition_styles: Vec<Style> = PARTITION_COLOR_CODES
                 .iter()
                 .map(|color| Style::new().fg_color(Some(Color::from(*color))))
-                .collect(),
-            // These are close to the colors of the IntelliJ IDEA JSON viewer
-            key: Style::new().fg_color(Some(Color::from(54))),
-            string: Style::new().fg_color(Some(Color::from(22))),
-            number: Style::new().fg_color(Some(Color::from(19))),
-            keyword: Style::new().fg_color(Some(Color::from(18))),
+                .collect();
+            let partition_styles_bold: Vec<Style> =
+                partition_styles.iter().map(|style| style.bold()).collect();
+            let partition_styles_dimmed: Vec<Style> = partition_styles
+                .iter()
+                .map(|style| style.dimmed())
+                .collect();
+            Self {
+                colors: true,
+                plain: Style::new(),
+                bold: Style::new().bold(),
+                dimmed: Style::new().dimmed(),
+                success: Style::new()
+                    .fg_color(Some(Color::Ansi(AnsiColor::Green)))
+                    .bold(),
+                warning: Style::new()
+                    .fg_color(Some(Color::Ansi(AnsiColor::Yellow)))
+                    .bold(),
+                error: Style::new()
+                    .fg_color(Some(Color::Ansi(AnsiColor::Red)))
+                    .bold(),
+                partition_styles,
+                partition_styles_bold,
+                partition_styles_dimmed,
+                // These are close to the colors of the IntelliJ IDEA JSON viewer
+                key: Style::new().fg_color(Some(Color::from(54))),
+                string: Style::new().fg_color(Some(Color::from(22))),
+                number: Style::new().fg_color(Some(Color::from(19))),
+                keyword: Style::new().fg_color(Some(Color::from(18))),
+            }
         })
     }
 
     pub fn partition(&self, index: i32) -> &Style {
         &self.partition_styles[index as usize % self.partition_styles.len()]
+    }
+
+    pub fn partition_bold(&self, index: i32) -> &Style {
+        &self.partition_styles_bold[index as usize % self.partition_styles.len()]
+    }
+
+    pub fn partition_dimmed(&self, index: i32) -> &Style {
+        &self.partition_styles_dimmed[index as usize % self.partition_styles.len()]
     }
 
     pub fn dialoguer_theme(&self) -> Box<dyn Theme> {
