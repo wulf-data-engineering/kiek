@@ -26,9 +26,9 @@ use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
 use crate::kafka::{
-    assign_partition_for_key, assign_topic_or_partition, format_timestamp,
-    select_topic_or_partition, FormatBootstrapServers, TopicOrPartition, DEFAULT_BROKER_STRING,
-    DEFAULT_PORT,
+    assign_partition_for_key, assign_topic_or_partition, format_timestamp, partition_for_plain_key,
+    select_topic_or_partition, Assigment, FormatBootstrapServers, TopicOrPartition,
+    DEFAULT_BROKER_STRING, DEFAULT_PORT,
 };
 use crate::payload::{format_payload, parse_payload, Payload};
 use crate::schema_registry::SchemaRegistryFacade;
@@ -167,20 +167,21 @@ where
 
     feedback.info("Assigning", "partitions");
 
-    match &args.key {
+    let assignment = match &args.key {
         Some(key) => {
             assign_partition_for_key(&consumer, &topic_or_partition, key, start_offset, feedback)
-                .await?;
+                .await?
         }
         None => {
             assign_topic_or_partition(&consumer, &topic_or_partition, start_offset, feedback)
-                .await?;
+                .await?
         }
-    }
+    };
 
     consume(
         args,
         consumer,
+        assignment,
         glue_schema_registry_facade,
         schema_registry_facade,
         feedback,
@@ -194,6 +195,7 @@ where
 async fn consume<Ctx>(
     args: Args,
     consumer: StreamConsumer<Ctx>,
+    assigment: Assigment,
     glue_schema_registry_facade: GlueSchemaRegistryFacade,
     schema_registry_facade: Option<SchemaRegistryFacade>,
     feedback: &Feedback,
@@ -212,6 +214,7 @@ where
         let result = read_batch(
             &args,
             &consumer,
+            &assigment,
             &glue_schema_registry_facade,
             schema_registry_facade.as_ref(),
             &feedback,
@@ -253,6 +256,7 @@ where
 async fn read_batch<Ctx>(
     args: &Args,
     consumer: &StreamConsumer<Ctx>,
+    assigment: &Assigment,
     glue_schema_registry_facade: &GlueSchemaRegistryFacade,
     schema_registry_facade: Option<&SchemaRegistryFacade>,
     feedback: &&Feedback,
@@ -272,6 +276,7 @@ where
         args,
         &mut out,
         awaited_record,
+        assigment,
         glue_schema_registry_facade,
         schema_registry_facade,
         feedback,
@@ -288,6 +293,7 @@ where
                     args,
                     &mut out,
                     record,
+                    assigment,
                     glue_schema_registry_facade,
                     schema_registry_facade,
                     feedback,
@@ -310,6 +316,7 @@ async fn process_record<'a>(
     args: &Args,
     out: &mut BufWriter<impl Write>,
     record: core::result::Result<BorrowedMessage<'a>, KafkaError>,
+    assigment: &Assigment,
     glue_schema_registry_facade: &GlueSchemaRegistryFacade,
     schema_registry_facade: Option<&SchemaRegistryFacade>,
     feedback: &&Feedback,
@@ -332,6 +339,18 @@ async fn process_record<'a>(
             // Skip messages that don't match the key if a key is scanned for
             match &args.key {
                 Some(search_key) if !search_key.eq(&key) => {
+                    // but check if the key is in the correct partition
+                    if message.key().is_some() {
+                        // otherwise there is a wrong assumption about the partitioning
+                        let expected_partition = partition_for_plain_key(
+                            message.key().unwrap(),
+                            assigment.num_partitions,
+                        );
+                        if message.partition() != expected_partition {
+                            return Err(KiekError::new(format!("The topic {bold}{topic}{bold:#} is not partitioned by the standard partitioner using murmur2 hashes.\nkiek cannot identify the correct partition for key {bold}{search_key}{bold:#}.\nYou can pass the specific partition as {bold}{topic}-p{bold:#} or use {bold}-f{bold:#}, {bold}--filter {search_key}{bold:#} instead.", topic = assigment.topic_or_partition.topic(), bold = feedback.highlighting.bold)));
+                        }
+                    }
+
                     debug!("Skipping message with key {key}.");
                     return Ok(1);
                 }
