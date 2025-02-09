@@ -178,7 +178,6 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
     - OAuth (SASL OAUTHBEARER) for Schema Registry (Authorization: Bearer < --token >)
     - Add overrides for security settings for Schema Registry
 - UX
-    - **Check for default partitioner scanning for keys**
     - Explain schema lookup failures
     - Indicate reached head of topic with --earliest
     - Topic Profiles / --env for environment profiles

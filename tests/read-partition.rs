@@ -15,7 +15,12 @@ async fn read_from_beginning() -> Result<(), Box<dyn std::error::Error>> {
 
     empty_topic(topic_name, 1).await?;
 
-    produce_messages(topic_name, vec![("key0", "value0"), ("key1", "value1")]).await?;
+    produce_messages(
+        topic_name,
+        None,
+        vec![("key0", "value0"), ("key1", "value1")],
+    )
+    .await?;
 
     let mut cmd = Command::cargo_bin("kiek")?;
 
@@ -41,7 +46,7 @@ async fn read_from_end() -> Result<(), Box<dyn std::error::Error>> {
 
     empty_topic(topic_name, 1).await?;
 
-    produce_messages(topic_name, vec![("key0", "value0")]).await?;
+    produce_messages(topic_name, None, vec![("key0", "value0")]).await?;
 
     let mut cmd = Command::cargo_bin("kiek")?;
 
@@ -54,7 +59,7 @@ async fn read_from_end() -> Result<(), Box<dyn std::error::Error>> {
 
     let handle = tokio::spawn(async move {
         loop {
-            produce_messages(topic_name, vec![("key1", "value1")])
+            produce_messages(topic_name, None, vec![("key1", "value1")])
                 .await
                 .unwrap();
             sleep(std::time::Duration::from_millis(10)).await;
@@ -84,6 +89,7 @@ async fn filter_key_and_value() -> Result<(), Box<dyn std::error::Error>> {
 
     produce_messages(
         topic_name,
+        None,
         vec![
             ("foo", "bar"),
             ("bar", "baz"),
@@ -167,6 +173,7 @@ async fn scan_for_key() -> Result<(), Box<dyn std::error::Error>> {
 
     produce_messages(
         topic_name,
+        None,
         vec![
             (similar_partition_key, "value"),
             (other_partition_key, "value"),
@@ -194,8 +201,59 @@ async fn scan_for_key() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[tokio::test]
+async fn scan_for_key_with_wrong_partitioning() -> Result<(), Box<dyn std::error::Error>> {
+    let topic_name = "scan_for_key_with_wrong_partitioning";
+
+    empty_topic(topic_name, 2).await?;
+
+    // Given a topic that does not use standard partitioning (2 partitions with the same keys)
+    produce_messages(
+        topic_name,
+        Some(0),
+        vec![
+            ("0", "value"),
+            ("1", "value"),
+            ("2", "value"),
+            ("3", "value"),
+        ],
+    )
+    .await?;
+
+    produce_messages(
+        topic_name,
+        Some(1),
+        vec![
+            ("0", "value"),
+            ("1", "value"),
+            ("2", "value"),
+            ("3", "value"),
+        ],
+    )
+    .await?;
+
+    // When we scan for a key
+    let scanned_key = "4";
+
+    let mut cmd = Command::cargo_bin("kiek")?;
+
+    cmd.arg(topic_name);
+    cmd.arg("--no-colors");
+    cmd.arg("-v");
+    cmd.arg(format!("--key={scanned_key}"));
+
+    // Then kiek should fail indicating that the wrong partitioning
+
+    cmd.assert().failure().stderr(predicates::str::contains(
+        format!("You can pass the specific partition as {topic_name}-p or use -f, --filter {scanned_key} instead."),
+    ));
+
+    Ok(())
+}
+
 async fn produce_messages<I>(
     topic_name: &str,
+    partition: Option<i32>,
     messages: I,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
@@ -208,12 +266,16 @@ where
     let producer: FutureProducer = client_config.create()?;
 
     join_all(messages.into_iter().map(|(key, message)| {
-        producer.send(
-            rdkafka::producer::FutureRecord::to(topic_name)
-                .key(key)
-                .payload(message),
-            std::time::Duration::from_secs(1),
-        )
+        let record = rdkafka::producer::FutureRecord::to(topic_name)
+            .key(key)
+            .payload(message);
+
+        let record = match partition {
+            Some(partition) => record.partition(partition),
+            None => record,
+        };
+
+        producer.send(record, std::time::Duration::from_secs(1))
     }))
     .await;
 

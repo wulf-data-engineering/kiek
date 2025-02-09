@@ -168,7 +168,7 @@ where
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum TopicOrPartition {
     Topic(String),
-    TopicPartition(String, usize),
+    TopicPartition(String, i32),
 }
 
 impl TopicOrPartition {
@@ -178,6 +178,12 @@ impl TopicOrPartition {
             TopicOrPartition::TopicPartition(topic, _) => topic,
         }
     }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub(crate) struct Assigment {
+    pub(crate) topic_or_partition: TopicOrPartition,
+    pub(crate) num_partitions: i32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -197,7 +203,7 @@ pub async fn assign_partition_for_key<Ctx>(
     key: &str,
     start_offset: StartOffset,
     feedback: &Feedback,
-) -> Result<()>
+) -> Result<Assigment>
 where
     Ctx: KiekContext + 'static,
 {
@@ -231,7 +237,12 @@ where
     let topic_partition_list = TopicPartitionList::from_topic_map(&partition_offsets)?;
     consumer.assign(&topic_partition_list)?;
 
-    Ok(())
+    let assignment = Assigment {
+        topic_or_partition: topic_or_partition.clone(),
+        num_partitions,
+    };
+
+    Ok(assignment)
 }
 
 ///
@@ -283,7 +294,7 @@ fn prompt_topic_or_partition(
     metadata: &Metadata,
     given: Option<&TopicOrPartition>,
     feedback: &Feedback,
-) -> Result<(TopicOrPartition, usize)> {
+) -> Result<(TopicOrPartition, i32)> {
     assert!(feedback.interactive);
     let topic_names: Vec<String> = metadata
         .topics()
@@ -339,7 +350,7 @@ fn prompt_topic_or_partition(
         .find(|t| t.name() == topic)
         .unwrap()
         .partitions()
-        .len();
+        .len() as i32;
 
     match given {
         Some(TopicOrPartition::TopicPartition(_, partition)) => Ok((
@@ -357,9 +368,9 @@ fn prompt_partition(
     feedback: &Feedback,
     theme: Box<dyn Theme>,
     topic: &String,
-    num_partitions: usize,
-) -> Result<(TopicOrPartition, usize)> {
-    let partitions: Vec<String> = (-1..num_partitions as i32)
+    num_partitions: i32,
+) -> Result<(TopicOrPartition, i32)> {
+    let partitions: Vec<String> = (-1..num_partitions)
         .map(|p| {
             if p == -1 {
                 format!("{topic} (all partitions)")
@@ -386,7 +397,7 @@ fn prompt_partition(
         Ok((TopicOrPartition::Topic(topic.clone()), num_partitions))
     } else {
         Ok((
-            TopicOrPartition::TopicPartition(topic.clone(), partition as usize),
+            TopicOrPartition::TopicPartition(topic.clone(), partition),
             num_partitions,
         ))
     }
@@ -400,7 +411,7 @@ pub async fn verify_topic_or_partition<Ctx>(
     consumer: &StreamConsumer<Ctx>,
     topic_or_partition: &TopicOrPartition,
     feedback: &Feedback,
-) -> Result<(TopicOrPartition, usize)>
+) -> Result<(TopicOrPartition, i32)>
 where
     Ctx: KiekContext + 'static,
 {
@@ -435,7 +446,7 @@ pub async fn assign_topic_or_partition<Ctx>(
     topic_or_partition: &TopicOrPartition,
     start_offset: StartOffset,
     feedback: &Feedback,
-) -> Result<()>
+) -> Result<Assigment>
 where
     Ctx: KiekContext + 'static,
 {
@@ -449,7 +460,7 @@ where
     let topic_partition_list: TopicPartitionList = match topic_or_partition {
         TopicOrPartition::Topic(_) => {
             let partition_offsets: HashMap<(String, i32), Offset> = (0..num_partitions)
-                .map(|partition| ((topic.to_string(), partition as i32), offset))
+                .map(|partition| ((topic.to_string(), partition), offset))
                 .collect();
 
             info!("Assigning all {num_partitions} partitions for {topic}.");
@@ -462,7 +473,7 @@ where
             }
 
             let partition_offsets: HashMap<(String, i32), Offset> =
-                HashMap::from([((topic.to_string(), partition as i32), offset)]);
+                HashMap::from([((topic.to_string(), partition), offset)]);
 
             info!("Assigning partition {partition} for {topic}.");
 
@@ -472,7 +483,12 @@ where
 
     consumer.assign(&topic_partition_list)?;
 
-    Ok(())
+    let assignment = Assigment {
+        topic_or_partition: topic_or_partition.clone(),
+        num_partitions,
+    };
+
+    Ok(assignment)
 }
 
 ///
@@ -481,7 +497,7 @@ where
 async fn fetch_number_of_partitions<Ctx>(
     consumer: &StreamConsumer<Ctx>,
     topic: &str,
-) -> Result<Option<usize>>
+) -> Result<Option<i32>>
 where
     Ctx: KiekContext + 'static,
 {
@@ -489,7 +505,7 @@ where
 
     match metadata.topics().first() {
         Some(topic_metadata) if !topic_metadata.partitions().is_empty() => {
-            Ok(Some(topic_metadata.partitions().len()))
+            Ok(Some(topic_metadata.partitions().len() as i32))
         }
         _ => Ok(None),
     }
@@ -506,10 +522,17 @@ fn offset_for(start_offset: StartOffset) -> Offset {
 ///
 /// Implementation of the partitioner algorithm used by Kafka's default partitioner
 ///
-pub fn partition_for_key(key: &str, partitions: usize) -> usize {
-    let hash = murmur2(key.as_bytes(), KAFKA_SEED);
+pub fn partition_for_key(key: &str, partitions: i32) -> i32 {
+    partition_for_plain_key(key.as_bytes(), partitions)
+}
+
+///
+/// Implementation of the partitioner algorithm used by Kafka's default partitioner
+///
+pub fn partition_for_plain_key(key: &[u8], partitions: i32) -> i32 {
+    let hash = murmur2(key, KAFKA_SEED);
     let hash = hash & 0x7fffffff; // "to positive" from Kafka's partitioner
-    (hash % partitions as u32) as usize
+    (hash % partitions as u32) as i32
 }
 
 ///
