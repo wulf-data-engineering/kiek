@@ -12,7 +12,7 @@ use dialoguer::theme::Theme;
 use dialoguer::Select;
 use futures::FutureExt;
 use levenshtein::levenshtein;
-use log::info;
+use log::{debug, info};
 use murmur2::{murmur2, KAFKA_SEED};
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::stream_consumer::StreamConsumer;
@@ -517,6 +517,24 @@ fn offset_for(start_offset: StartOffset) -> Offset {
         StartOffset::Latest => Offset::End,
         StartOffset::Relative(offset) => Offset::OffsetTail(offset),
     }
+}
+
+///
+/// Seeks to the offsets for the given start time.
+///
+pub async fn seek_start_offsets<Ctx>(
+    consumer: &StreamConsumer<Ctx>,
+    start: DateTime<Local>,
+) -> Result<()>
+where
+    Ctx: KiekContext + 'static,
+{
+    let timestamp = start.timestamp_millis();
+    debug!("Obtaining offsets for {timestamp} ({})", start.to_rfc3339());
+    let offsets = consumer.offsets_for_timestamp(timestamp, TIMEOUT)?;
+    debug!("Seeking to {offsets:?}");
+    consumer.seek_partitions(offsets, TIMEOUT)?;
+    Ok(())
 }
 
 ///

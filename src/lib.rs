@@ -28,8 +28,8 @@ use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
 use crate::kafka::{
     assign_partition_for_key, assign_topic_or_partition, format_timestamp, partition_for_plain_key,
-    select_topic_or_partition, Assigment, FormatBootstrapServers, TopicOrPartition,
-    DEFAULT_BROKER_STRING, DEFAULT_PORT,
+    seek_start_offsets, select_topic_or_partition, Assigment, FormatBootstrapServers,
+    TopicOrPartition, DEFAULT_BROKER_STRING, DEFAULT_PORT,
 };
 use crate::payload::{format_payload, parse_payload, Payload};
 use crate::schema_registry::SchemaRegistryFacade;
@@ -179,6 +179,14 @@ where
         }
     };
 
+    let start_date = Local::now();
+
+    if let Some(time_definition) = &args.from {
+        feedback.info("Fetching", "start offsets");
+        let start = time_definition.resolve_from(start_date);
+        seek_start_offsets(&consumer, start).await?;
+    }
+
     consume(
         args,
         consumer,
@@ -186,6 +194,7 @@ where
         glue_schema_registry_facade,
         schema_registry_facade,
         feedback,
+        start_date,
     )
     .await
 }
@@ -200,11 +209,11 @@ async fn consume<Ctx>(
     glue_schema_registry_facade: GlueSchemaRegistryFacade,
     schema_registry_facade: Option<SchemaRegistryFacade>,
     feedback: &Feedback,
+    start_date: DateTime<Local>,
 ) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
-    let start_date = Local::now();
     let mut received_messages: usize = 0;
 
     feedback.info("Consuming", "messages");

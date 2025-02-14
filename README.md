@@ -89,6 +89,19 @@ kiek some-topic -o=beginning -f="some string"
 The **--filter**, **-f** option lets kiek just print messages that contain a string in key or payload.  
 For string values it is a simple substring search, for AVRO payloads it is a check on the JSON representation.
 
+### Start at a specific point in time
+
+```shell
+kiek some-topic --from=now
+kiek some-topic --from=-10s
+kiek some-topic --from=-60m
+kiek some-topic --from=-24h
+kiek some-topic --from=-7d
+kiek some-topic --from=-"2023-10-01"
+kiek some-topic --from=-"2023-10-01 12:34"
+kiek some-topic --from=-"2023-10-01 12:34:56"
+```
+
 ### Authenticate at remote broker
 
 ```shell

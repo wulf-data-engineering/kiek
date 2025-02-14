@@ -70,7 +70,7 @@ pub struct Args {
     /// - "12:00[:00]" for a specific time today
     /// - "-1h" for a relative time in the past (d, h, m, s)
     #[arg(group = "start", long, verbatim_doc_comment)]
-    from: Option<TimeDefinition>,
+    pub from: Option<TimeDefinition>,
 
     /// Optional end date/time for the consumer
     ///
