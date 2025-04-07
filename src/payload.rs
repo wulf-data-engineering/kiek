@@ -108,6 +108,8 @@ mod tests {
     use aws_credential_types::provider::SharedCredentialsProvider;
     use aws_credential_types::Credentials;
     use aws_types::region::Region;
+    use flate2::write::ZlibEncoder;
+    use std::io::Write;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -152,6 +154,63 @@ mod tests {
                 .unwrap(),
             Payload::Unknown(String::from_utf8_lossy(&some_bytes).to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn test_glue_decoding() {
+        let h = Highlighting::plain();
+        let f = Feedback::prepare(h, true);
+        let credentials = Credentials::for_tests();
+        let credentials_provider = SharedCredentialsProvider::new(credentials);
+        let glue_facade = GlueSchemaRegistryFacade::new(
+            credentials_provider,
+            Region::from_static("eu-central-1"),
+            &f,
+        );
+
+        let schema = apache_avro::Schema::parse_str(
+            r#"
+            {
+                "type": "record",
+                "name": "TestRecord",
+                "fields": [
+                    {"name": "field1", "type": "string"},
+                    {"name": "field2", "type": "int"}
+                ]
+            }
+            "#,
+        )
+        .unwrap();
+
+        let uuid = Uuid::new_v4();
+        glue_facade.register_schema(&uuid, &schema).await;
+
+        let value: apache_avro::types::Value = apache_avro::types::Value::Record(vec![
+            (
+                "field1".to_string(),
+                apache_avro::types::Value::String("field1".to_string()),
+            ),
+            ("field2".to_string(), apache_avro::types::Value::Int(42)),
+        ]);
+
+        let encoded = apache_avro::to_avro_datum(&schema, value.clone()).unwrap();
+
+        let buffer = &mut Vec::new();
+        let mut encoder = ZlibEncoder::new(buffer, flate2::Compression::default());
+        encoder.write_all(encoded.as_slice()).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut payload: Vec<u8> = Vec::new();
+        payload.push(3); // magic byte
+        payload.push(5); // zlib compression
+        payload.extend_from_slice(uuid.as_bytes().as_slice());
+        payload.append(compressed);
+
+        let parsed_payload = parse_payload(Some(payload.as_slice()), &glue_facade, None, h)
+            .await
+            .unwrap();
+
+        assert_eq!(parsed_payload, Payload::Avro(value));
     }
 
     #[test]

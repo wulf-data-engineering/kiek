@@ -1,11 +1,13 @@
 use crate::feedback::Feedback;
 use crate::Result;
-use apache_avro::Schema;
+use apache_avro::{AvroResult, Schema};
 use aws_sdk_glue::config::BehaviorVersion;
 use aws_sdk_glue::Client;
 use aws_sdk_sts::config::SharedCredentialsProvider;
 use aws_types::region::Region;
+use flate2::read::ZlibDecoder;
 use log::{debug, info};
+use std::io::Read;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -32,11 +34,9 @@ pub fn analyze_glue_message(data: &[u8]) -> Result<GlueMessage> {
         return Err("Invalid compression type".into());
     }
 
-    let zlib_compressed = compression_byte == 5;
+    println!("Compression Type: {}", compression_byte);
 
-    if zlib_compressed {
-        return Err("Zlib compression not supported for now".into());
-    }
+    let zlib_compressed = compression_byte == 5;
 
     if data.len() < 18 {
         return Err(
@@ -48,11 +48,16 @@ pub fn analyze_glue_message(data: &[u8]) -> Result<GlueMessage> {
 
     let payload = &data[18..];
 
-    Ok(GlueMessage { schema_id, payload })
+    Ok(GlueMessage {
+        schema_id,
+        zlib_compressed,
+        payload,
+    })
 }
 
 pub struct GlueMessage<'a> {
     pub schema_id: Uuid,
+    pub zlib_compressed: bool,
     pub payload: &'a [u8],
 }
 
@@ -66,8 +71,22 @@ pub async fn decode_glue_message<'a>(
     let schema = glue_schema_registry_facade
         .get_schema(&message.schema_id)
         .await?;
-    let value =
-        apache_avro::from_avro_datum(&schema, &mut std::io::Cursor::new(message.payload), None)?;
+
+    let mut cursor = std::io::Cursor::new(message.payload);
+
+    fn decode_value<R: Read>(
+        schema: &Schema,
+        read: &mut R,
+    ) -> AvroResult<apache_avro::types::Value> {
+        apache_avro::from_avro_datum(schema, read, None)
+    }
+
+    let value = if message.zlib_compressed {
+        decode_value(&schema, &mut ZlibDecoder::new(cursor))?
+    } else {
+        decode_value(&schema, &mut cursor)?
+    };
+
     Ok(value)
 }
 
@@ -136,11 +155,18 @@ impl GlueSchemaRegistryFacade {
 
         Ok(schema)
     }
+
+    #[cfg(test)]
+    pub(crate) async fn register_schema(&self, schema_id: &Uuid, schema: &Schema) {
+        let mut cache = self.cache.lock().await;
+        cache.insert(*schema_id, schema.clone());
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openssl::base64;
 
     #[test]
     fn test_analysis() {
@@ -156,11 +182,6 @@ mod tests {
             .unwrap()
             .to_string()
             .contains("Invalid compression type"));
-        assert!(analyze_glue_message(&[3, 5])
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("Zlib compression not supported for now"));
         assert!(analyze_glue_message(&[3, 0, 2])
             .err()
             .unwrap()
@@ -182,5 +203,9 @@ mod tests {
         let glue_message = analyze_glue_message(data.as_slice()).unwrap();
         assert_eq!(glue_message.schema_id, uuid);
         assert_eq!(glue_message.payload, some_payload);
+
+        let zlib_encoded = base64::decode_block("AwVbUsB4hvBEKbu/zLjzsIGneJytk0Fv2jAUx0PUE0IIVahC1Q6utAPSGuI4ISFohzaDDUQHFSAm9WaIS6IYm8XO6LbrPsOu+xJTjzus36OfZQ7rWKUh7dKT/f/5+b3/80teIoiaBkQGcqew1W7abeg3HOR5sGUh9+qwCR3Xhr7rln7v6v3htDueXI7GUzAbTd71h4Puhb6X1gZ3tyxeijXF8tOBaxVtx7K80gALQahe6hG1Mr2i3Y7uvfsbrXzy4/33z8eaXoNN1zIR9HzkWI9Vy9aPoN+2oYFgG0LtaZSm6bNk68lIONkZPouZJKlY81QaH7jYxCwhtBGS2mGAw5U65KwaYJEQOceUFgN+Q1ixg1MpKq+zu285rPQwC/PNsz6jMSPGJMEyZsvqmFMqFlEWkfI4Y0yh4/yIzDlOQ6XKU5wtIsKqMxVIPuYplMufhUjKtWib5mazafy1p0yZESYspArk98wtXhJVApNrSYxo+9Tm9v2Nh173tWfqXx5q/FshNIXkKRH/z1LQ6pOcgNkfAt6s5j19L33+CqeUG5NFtIpD41y1Sw4su+g4yLUrHRW/yli4+1ieIgcUJEmJxGmM5dnjyergheMDZFvA94HvAgj1r4W3OF1kAgxJRk/BGNNrcEGiVZJFSqrpXGO25CDgLIxPQR7LwSVXI5BS6YCnsQBXmHGaA71+vpJiSdJ4EUmw81XpjQNL/XFIP+p0bde1POT51i+62h9Z").unwrap();
+        let glue_message = analyze_glue_message(zlib_encoded.as_slice()).unwrap();
+        assert!(glue_message.zlib_compressed);
     }
 }
