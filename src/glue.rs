@@ -34,8 +34,6 @@ pub fn analyze_glue_message(data: &[u8]) -> Result<GlueMessage> {
         return Err("Invalid compression type".into());
     }
 
-    println!("Compression Type: {}", compression_byte);
-
     let zlib_compressed = compression_byte == 5;
 
     if data.len() < 18 {
