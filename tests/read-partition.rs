@@ -18,6 +18,7 @@ async fn read_from_beginning() -> Result<(), Box<dyn std::error::Error>> {
     produce_messages(
         topic_name,
         None,
+        None,
         vec![("key0", "value0"), ("key1", "value1")],
     )
     .await?;
@@ -46,7 +47,7 @@ async fn read_from_end() -> Result<(), Box<dyn std::error::Error>> {
 
     empty_topic(topic_name, 1).await?;
 
-    produce_messages(topic_name, None, vec![("key0", "value0")]).await?;
+    produce_messages(topic_name, None, None, vec![("key0", "value0")]).await?;
 
     let mut cmd = Command::cargo_bin("kiek")?;
 
@@ -59,7 +60,7 @@ async fn read_from_end() -> Result<(), Box<dyn std::error::Error>> {
 
     let handle = tokio::spawn(async move {
         loop {
-            produce_messages(topic_name, None, vec![("key1", "value1")])
+            produce_messages(topic_name, None, None, vec![("key1", "value1")])
                 .await
                 .unwrap();
             sleep(std::time::Duration::from_millis(10)).await;
@@ -89,6 +90,7 @@ async fn filter_key_and_value() -> Result<(), Box<dyn std::error::Error>> {
 
     produce_messages(
         topic_name,
+        None,
         None,
         vec![
             ("foo", "bar"),
@@ -174,6 +176,7 @@ async fn scan_for_key() -> Result<(), Box<dyn std::error::Error>> {
     produce_messages(
         topic_name,
         None,
+        None,
         vec![
             (similar_partition_key, "value"),
             (other_partition_key, "value"),
@@ -211,6 +214,7 @@ async fn scan_for_key_with_wrong_partitioning() -> Result<(), Box<dyn std::error
     produce_messages(
         topic_name,
         Some(0),
+        None,
         vec![
             ("0", "value"),
             ("1", "value"),
@@ -223,6 +227,7 @@ async fn scan_for_key_with_wrong_partitioning() -> Result<(), Box<dyn std::error
     produce_messages(
         topic_name,
         Some(1),
+        None,
         vec![
             ("0", "value"),
             ("1", "value"),
@@ -251,9 +256,46 @@ async fn scan_for_key_with_wrong_partitioning() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+#[tokio::test]
+async fn read_compressed() -> Result<(), Box<dyn std::error::Error>> {
+    let topic_name = "read_compressed";
+
+    empty_topic(topic_name, 1).await?;
+
+    let compressions = vec!["gzip", "snappy", "lz4", "zstd"];
+
+    for compression in compressions.iter() {
+        produce_messages(
+            topic_name,
+            None,
+            Some(compression),
+            vec![(*compression, *compression)],
+        )
+        .await?;
+    }
+
+    let mut cmd = Command::cargo_bin("kiek")?;
+
+    cmd.arg(topic_name);
+    cmd.arg("--no-colors");
+    cmd.arg(format!("--max={}", compressions.len()));
+
+    let output = cmd.output()?;
+    let output = String::from_utf8(output.stdout)?;
+    let lines: Vec<&str> = output.lines().collect();
+
+    for (i, compression) in compressions.iter().enumerate() {
+        assert_starts_with!(lines[i], format!("{topic_name}-0"));
+        assert_ends_with!(lines[i], format!("{} {}", compression, compression));
+    }
+
+    Ok(())
+}
+
 async fn produce_messages<I>(
     topic_name: &str,
     partition: Option<i32>,
+    compression: Option<&str>,
     messages: I,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
@@ -262,6 +304,7 @@ where
     let mut client_config = ClientConfig::new();
     client_config.set("bootstrap.servers", "127.0.0.1:9092");
     client_config.set("partitioner", "murmur2_random"); // the Java client partitioner
+    client_config.set("compression.type", compression.unwrap_or("none"));
 
     let producer: FutureProducer = client_config.create()?;
 
