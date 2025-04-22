@@ -5,10 +5,8 @@ edition = "2021"
 
 [dependencies]
 # Generic
-once_cell = "1.21.3"
 tokio = { version = "1.44.2", features = ["full"] }
 futures = "0.3.31"
-async-trait = "0.1.88"
 log = "0.4.27"
 simple_logger = "5.0.0"
 serde = "1.0.219"
@@ -27,7 +25,7 @@ aws-sdk-glue = { version = "1.84.0", features = ["rustls"] }
 # Specific application
 clap = { version = "4.5.36", features = ["derive"] }
 clap_complete = "4.5.47"
-rdkafka = { version = "0.37.0", features = ["default", "ssl"] }
+rdkafka = { version = "0.37.0", features = ["default", "ssl", "zstd"] }
 aws-msk-iam-sasl-signer = "1.0.0"
 uuid = { version = "1.16.0", features = ["v4"] }
 apache-avro = "0.17.0"
@@ -39,7 +37,6 @@ reachable = { version = "0.2.2", features = ["default"] }
 aws-credential-types = "1.2.2"
 termion = "4.0.5"
 bigdecimal = "0.4.8"
-hex = "0.4.3"
 flate2 = "1.1.1"
 
 [dev-dependencies]
