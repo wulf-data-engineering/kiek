@@ -26,7 +26,7 @@ jobs:
           rustup target add ${{ matrix.platform.target }}
           cargo install cargo-get
           echo "version=$(cargo get package.version)" >> $GITHUB_OUTPUT
-          cargo build --target ${{ matrix.platform.target }} --release
+          cargo build --target ${{ matrix.platform.target }} --frozen --release
           mv target/${{ matrix.platform.target }}/release/kiek kiek
       - name: Codesign for macOS
         if: matrix.platform.os == 'macos-latest'
