@@ -28,6 +28,7 @@ jobs:
         id: update_version
         run: |
           cargo bump ${{ github.event.inputs.version }}
+          cargo generate-lockfile --offline # ensure the version is updated in Cargo.lock as well
           echo "version=$(cargo get package.version)" >> $GITHUB_OUTPUT
       - name: Create pull request
         id: create_pr
