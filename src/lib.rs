@@ -10,6 +10,7 @@ mod msk_iam_context;
 mod payload;
 mod schema_registry;
 
+use std::cmp::{max, min};
 use std::error::Error;
 use std::fs::File;
 use std::io;
@@ -239,7 +240,8 @@ where
                     } else {
                         feedback.info("Reconnecting", "to broker");
                     }
-                    let backoff = Duration::from_millis(50 * 2u64.pow(reconnects));
+                    let backoff = min(5000, 50 * 2u64.pow(reconnects));
+                    let backoff = Duration::from_millis(backoff);
                     sleep(backoff).await;
                 } else {
                     return Err(e);
