@@ -1,6 +1,7 @@
 name: Update copyright years in license file
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: '0 3 1 1 *' # 03:00 AM on January 1
 
@@ -13,4 +14,4 @@ jobs:
           fetch-depth: 0
       - uses: FantasticFiasco/action-update-license-year@v3
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.KIEK_RELEASE_PAT }}

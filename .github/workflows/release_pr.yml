@@ -40,3 +40,4 @@ jobs:
           body: "Updates version to ${{ steps.update_version.outputs.version }}"
           base: main
           labels: release, ${{ steps.update_version.outputs.version }}
+          token: ${{ secrets.KIEK_RELEASE_PAT }}
