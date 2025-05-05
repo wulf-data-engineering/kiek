@@ -10,7 +10,8 @@ mod msk_iam_context;
 mod payload;
 mod schema_registry;
 
-use std::cmp::{max, min};
+use std::cmp::min;
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 use std::io;
@@ -38,10 +39,10 @@ use clap::CommandFactory;
 use clap_complete::{generate, Shell};
 use futures::FutureExt;
 use log::{debug, error, info, trace, LevelFilter};
-use rdkafka::consumer::{ConsumerContext, StreamConsumer};
+use rdkafka::consumer::{Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::BorrowedMessage;
-use rdkafka::Message;
+use rdkafka::{Message, TopicPartitionList};
 use reachable::TcpTarget;
 use simple_logger::SimpleLogger;
 use std::net::{SocketAddr, TcpStream};
@@ -184,8 +185,15 @@ where
     if let Some(time_definition) = &args.from {
         feedback.info("Fetching", "start offsets");
         let start = time_definition.resolve_from(start_date);
+        info!("Starting to read from {start}.");
         seek_start_offsets(&consumer, start).await?;
     }
+
+    let max_date = args.to.clone().map(|time_definition| {
+        let end = time_definition.resolve_to(start_date);
+        info!("Reading until {end}.");
+        end
+    });
 
     consume(
         args,
@@ -195,6 +203,7 @@ where
         schema_registry_facade,
         feedback,
         start_date,
+        max_date,
     )
     .await
 }
@@ -210,11 +219,15 @@ async fn consume<Ctx>(
     schema_registry_facade: Option<SchemaRegistryFacade>,
     feedback: &Feedback,
     start_date: DateTime<Local>,
+    max_date: Option<DateTime<Local>>,
 ) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
 {
     let mut received_messages: usize = 0;
+
+    // collect the partitions that are paused because they reached the max. timestamp
+    let mut paused = HashSet::<i32>::new();
 
     feedback.info("Consuming", "messages");
 
@@ -229,7 +242,9 @@ where
             schema_registry_facade.as_ref(),
             &feedback,
             &start_date,
+            &max_date,
             &mut received_messages,
+            &mut paused,
         )
         .await;
         match result {
@@ -261,9 +276,23 @@ where
         if received_messages >= args.max() {
             break Ok(());
         }
+
+        if consumer.assignment()?.count() == paused.len() {
+            info!(
+                "All {} partitions are paused. Reached the max. date for all of them.",
+                paused.len()
+            );
+            // reached the max. timestamps for all partitions
+            break Ok(());
+        }
     }
 }
 
+///
+/// Read a batch of messages from the Kafka topic or partition.
+/// Keeps track of the number of messages received and the partitions that are paused.
+/// A partition is paused if the consumer has reached the `to` timestamp for that partition.
+///
 async fn read_batch<Ctx>(
     args: &Args,
     consumer: &StreamConsumer<Ctx>,
@@ -272,7 +301,9 @@ async fn read_batch<Ctx>(
     schema_registry_facade: Option<&SchemaRegistryFacade>,
     feedback: &&Feedback,
     start_date: &DateTime<Local>,
+    max_date: &Option<DateTime<Local>>,
     received_messages: &mut usize,
+    paused_partitions: &mut HashSet<i32>,
 ) -> Result<()>
 where
     Ctx: ConsumerContext + 'static,
@@ -285,13 +316,16 @@ where
 
     *received_messages += process_record(
         args,
+        consumer,
         &mut out,
         awaited_record,
         assigment,
+        paused_partitions,
         glue_schema_registry_facade,
         schema_registry_facade,
         feedback,
         start_date,
+        max_date,
     )
     .await?;
 
@@ -302,13 +336,16 @@ where
             Some(record) => {
                 *received_messages += process_record(
                     args,
+                    &consumer,
                     &mut out,
                     record,
                     assigment,
+                    paused_partitions,
                     glue_schema_registry_facade,
                     schema_registry_facade,
                     feedback,
                     start_date,
+                    max_date,
                 )
                 .await?;
             }
@@ -323,16 +360,22 @@ where
     Ok(())
 }
 
-async fn process_record<'a>(
+async fn process_record<'a, Ctx>(
     args: &Args,
+    consumer: &StreamConsumer<Ctx>,
     out: &mut BufWriter<impl Write>,
     record: core::result::Result<BorrowedMessage<'a>, KafkaError>,
     assigment: &Assigment,
+    paused: &mut HashSet<i32>,
     glue_schema_registry_facade: &GlueSchemaRegistryFacade,
     schema_registry_facade: Option<&SchemaRegistryFacade>,
     feedback: &&Feedback,
     start_date: &DateTime<Local>,
-) -> Result<usize> {
+    max_date: &Option<DateTime<Local>>,
+) -> Result<usize>
+where
+    Ctx: ConsumerContext + 'static,
+{
     match record {
         Err(KafkaError::MessageConsumption(RDKafkaErrorCode::GroupAuthorizationFailed)) => {
             // This error is expected when the consumer group is not authorized to commit offsets which isn't supported anyway
@@ -345,6 +388,42 @@ async fn process_record<'a>(
         }
 
         Ok(message) => {
+            // If max date is set, check if the message is younger than the max date.
+            // If so, pause the partition from consuming more messages.
+            if let Some(max_date) = max_date {
+                if paused.contains(&message.partition()) {
+                    debug!(
+                        "Skipping message of paused partition {}.",
+                        message.partition()
+                    );
+                    return Ok(1);
+                } else if let Some(message_time) = message.timestamp().to_millis() {
+                    if message_time > max_date.timestamp_millis() {
+                        println!(
+                            "{} {} {:?} vs. {} => {}",
+                            message.partition(),
+                            message.offset(),
+                            message.timestamp(),
+                            max_date.timestamp_millis(),
+                            message_time - max_date.timestamp_millis()
+                        );
+
+                        info!(
+                            "Message is younger than max date. Pausing partition {}.",
+                            message.partition()
+                        );
+                        paused.insert(message.partition());
+                        let mut list = TopicPartitionList::with_capacity(paused.len());
+                        let topic = assigment.topic_or_partition.topic();
+                        for partition in paused.iter() {
+                            list.add_partition(topic, *partition);
+                        }
+                        consumer.pause(&list)?;
+                        return Ok(1);
+                    }
+                }
+            }
+
             let key = String::from_utf8_lossy(message.key().unwrap_or(&[])).to_string();
 
             // Skip messages that don't match the key if a key is scanned for
@@ -429,6 +508,7 @@ fn configure_logging(verbose: bool, colors: bool) {
             .with_colors(colors)
             .with_level(LevelFilter::Info)
             .with_module_level(module_path!(), LevelFilter::Debug)
+            .with_local_timestamps()
             .init()
             .unwrap();
     } else {

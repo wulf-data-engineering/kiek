@@ -80,7 +80,7 @@ pub struct Args {
     /// - "12:00[:00]" for a specific time today
     /// - "-1h" for a relative time in the past (d, h, m, s)
     #[arg(group = "end", long, verbatim_doc_comment)]
-    to: Option<TimeDefinition>,
+    pub to: Option<TimeDefinition>,
 
     /// Consumer stops after consuming n messages
     #[arg(long, group = "end", aliases = ["limit"], value_name = "n")]

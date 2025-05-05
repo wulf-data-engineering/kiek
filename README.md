@@ -89,18 +89,27 @@ kiek some-topic -o=beginning -f="some string"
 The **--filter**, **-f** option lets kiek just print messages that contain a string in key or payload.  
 For string values it is a simple substring search, for AVRO payloads it is a check on the JSON representation.
 
-### Start at a specific point in time
+### Start or stop at a specific point in time
 
 ```shell
 kiek some-topic --from=now
 kiek some-topic --from=-10s
-kiek some-topic --from=-60m
+kiek some-topic --from=-60m --to=-30m
+kiek some-topic --from=-60m --to=now
 kiek some-topic --from=-24h
 kiek some-topic --from=-7d
-kiek some-topic --from=-"2023-10-01"
-kiek some-topic --from=-"2023-10-01 12:34"
+kiek some-topic --from=-"2023-10-01"          --to=-"2023-10-01"       # 24h
+kiek some-topic --from=-"2023-10-01 12:34"    --to=-"2023-10-01 12:34" # 1 minute
 kiek some-topic --from=-"2023-10-01 12:34:56"
 ```
+
+The **--from** and **--to** options let you specify a time range to start or stop reading messages.
+
+Absolute timestamps are in **local time**, so that they match the timestamps in the messages you read.  
+If you pass an absolute day, minute or second, kiek will treat them inclusively: 
+
+* `--from=-"2023-10-01"` means `2023-10-01 00:00:00` while
+* `--to=-"2023-10-01"` means `2023-10-01 23:59:59.999999`.
 
 ### Authenticate at remote broker
 
@@ -179,10 +188,6 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
 ### Publish
 
 - cargo nextest
-- Notarize macOS binary
-    - pkg: https://stackoverflow.com/questions/43525852/create-pkg-installer-with-bare-executable
-    - https://users.rust-lang.org/t/distributing-cli-apps-on-macos/70223
-- Integration Testing against Redpanda
 
 ### Increment Capabilities
 
