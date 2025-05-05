@@ -4,6 +4,7 @@ use crate::feedback::Feedback;
 use crate::highlight::Highlighting;
 use crate::kafka::{StartOffset, TopicOrPartition, DEFAULT_BROKER_STRING};
 use crate::Result;
+use chrono::{DateTime, Duration, Local, NaiveDateTime, Timelike};
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 use regex::Regex;
@@ -44,7 +45,7 @@ pub struct Args {
     ///
     /// Please note: in compacted topics the n latest offsets may not exist!
     #[arg(
-        group = "start-offset",
+        group = "start",
         short,
         long,
         value_name = "earliest|latest|-n",
@@ -53,16 +54,36 @@ pub struct Args {
     offset: Option<StartOffset>,
 
     /// Short option for --offset=earliest: Start from the beginning of the topic
-    #[arg(group = "start-offset", short, long, action, aliases = ["beginning", "from-beginning"], hide_short_help = true
+    #[arg(group = "start", short, long, action, aliases = ["beginning", "from-beginning"], hide_short_help = true
     )]
     earliest: bool,
 
     /// Short option for --offset=latest: Start from the end of the topic and wait for just new messages
-    #[arg(group = "start-offset", short, long, action, hide_short_help = true)]
+    #[arg(group = "start", short, long, action, hide_short_help = true)]
     latest: bool,
 
+    /// Optional start date/time for the consumer
+    ///
+    /// Supports several formats:
+    /// - "2021-01-01 12:00[:00]" for a specific date and time in current timezone
+    /// - "2021-01-01" for a specific date at midnight (00:00:00)
+    /// - "12:00[:00]" for a specific time today
+    /// - "-1h" for a relative time in the past (d, h, m, s)
+    #[arg(group = "start", long, verbatim_doc_comment)]
+    pub from: Option<TimeDefinition>,
+
+    /// Optional end date/time for the consumer
+    ///
+    /// Supports several formats:
+    /// - "2021-01-01 12:00[:00]" for a specific date and time in current timezone
+    /// - "2021-01-01" for a specific date at midnight (23:59:59)
+    /// - "12:00[:00]" for a specific time today
+    /// - "-1h" for a relative time in the past (d, h, m, s)
+    #[arg(group = "end", long, verbatim_doc_comment)]
+    pub to: Option<TimeDefinition>,
+
     /// Consumer stops after consuming n messages
-    #[arg(long, aliases = ["limit"], value_name = "n")]
+    #[arg(long, group = "end", aliases = ["limit"], value_name = "n")]
     max: Option<usize>,
 
     /// Optional key to search scanning just the partition with the key
@@ -370,6 +391,127 @@ impl FromStr for StartOffset {
     }
 }
 
+#[derive(PartialEq, Clone, Debug)]
+pub(crate) enum TimeDefinition {
+    Datetime(String),
+    Date(String),
+    Time(String),
+    Duration(Duration),
+}
+
+///
+/// Try now, duration and datetime
+///
+impl FromStr for TimeDefinition {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        if s == "now" {
+            Ok(TimeDefinition::Duration(Duration::zero()))
+        } else if s.starts_with('-') {
+            Self::parse_duration(s)
+        } else {
+            Self::parse_datetime(s)
+        }
+    }
+}
+
+impl TimeDefinition {
+    pub fn resolve_from(&self, now: DateTime<Local>) -> DateTime<Local> {
+        self.resolve(now, " 00:00:00", 0)
+    }
+
+    pub fn resolve_to(&self, now: DateTime<Local>) -> DateTime<Local> {
+        self.resolve(now, " 23:59:59", 999_999_999)
+    }
+
+    fn resolve(&self, now: DateTime<Local>, append_time: &str, nanos: u32) -> DateTime<Local> {
+        match self {
+            TimeDefinition::Datetime(s) => Self::resolve_datetime(&append_time, nanos, s),
+            TimeDefinition::Date(s) => Self::resolve_datetime(&append_time, nanos, s),
+            TimeDefinition::Time(s) => {
+                let date = now.date_naive().format("%Y-%m-%d").to_string();
+                let s = format!("{} {}", date, s);
+                Self::resolve_datetime(&append_time, nanos, &s)
+            }
+            TimeDefinition::Duration(d) => now - *d,
+        }
+    }
+
+    fn resolve_datetime(append_time: &&str, nanos: u32, s: &String) -> DateTime<Local> {
+        const LENGTH: usize = "YYYY-MM-dd HH:mm:ss".len();
+        let append = append_time.len() + s.len() - LENGTH;
+        let datetime = format!("{}{}", s, &append_time[append..]);
+        NaiveDateTime::parse_from_str(&datetime, "%Y-%m-%d %H:%M:%S")
+            .unwrap()
+            .and_local_timezone(Local)
+            .unwrap()
+            .with_nanosecond(nanos)
+            .unwrap()
+    }
+
+    fn parse_datetime(s: &str) -> std::result::Result<Self, String> {
+        match Self::datetime_regex().captures(s) {
+            Some(captures) => {
+                let value = captures.get(0).unwrap().as_str().into();
+                let date = captures.get(1);
+                let time = captures.get(5);
+                match (date, time) {
+                    (Some(_), Some(_)) => Ok(TimeDefinition::Datetime(value)),
+                    (Some(_), None) => Ok(TimeDefinition::Date(value)),
+                    (None, Some(_)) => Ok(TimeDefinition::Time(value)),
+                    _ => Self::datetime_error(),
+                }
+            }
+            None => Self::datetime_error(),
+        }
+    }
+
+    fn datetime_regex() -> &'static Regex {
+        static DURATION_REGEX: OnceLock<Regex> = OnceLock::new();
+        DURATION_REGEX.get_or_init(|| {
+            Regex::new(
+                r"^(([0-9]{4})-([0-9]{2})-([0-9]{2}))?\W?(([0-9]{2}):([0-9]{2})(:([0-9]{2}))?)?$",
+            )
+            .unwrap()
+        })
+    }
+
+    fn datetime_error() -> std::result::Result<Self, String> {
+        Err("Invalid date or time format: Use [YYYY-MM-DD] [HH:MM[:SS]]".to_string())
+    }
+
+    fn parse_duration(s: &str) -> std::result::Result<Self, String> {
+        match Self::duration_regex().captures(s) {
+            Some(captures) => {
+                let value = captures.get(1).unwrap().as_str().parse().unwrap();
+                let unit = captures.get(2).unwrap().as_str();
+                let duration = match unit {
+                    "d" => Duration::days(value),
+                    "h" => Duration::hours(value),
+                    "m" => Duration::minutes(value),
+                    "s" => Duration::seconds(value),
+                    _ => return Self::duration_error(),
+                };
+                Ok(TimeDefinition::Duration(duration))
+            }
+            None => Self::duration_error(),
+        }
+    }
+
+    fn duration_regex() -> &'static Regex {
+        static DURATION_REGEX: OnceLock<Regex> = OnceLock::new();
+        DURATION_REGEX.get_or_init(|| Regex::new(r"-([0-9]+)([dhms])").unwrap())
+    }
+
+    fn duration_error() -> std::result::Result<Self, String> {
+        Err(
+            "Invalid duration format: Use -n[dhms] for days, hours, minutes or seconds."
+                .to_string(),
+        )
+    }
+}
+
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum Authentication {
@@ -552,6 +694,118 @@ mod tests {
         assert_eq!(args.offset, Some(StartOffset::Relative(3)));
     }
 
+    #[test]
+    fn test_time_definition_parser() {
+        fn local_time(str: &str) -> DateTime<Local> {
+            NaiveDateTime::parse_from_str(str, "%Y-%m-%d %H:%M:%S")
+                .unwrap()
+                .and_local_timezone(Local)
+                .unwrap()
+        }
+
+        let now = local_time("2025-02-13 12:00:00");
+
+        assert_eq!(
+            TimeDefinition::from_str("now").unwrap().resolve_from(now),
+            now
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("-1d").unwrap().resolve_from(now),
+            local_time("2025-02-12 12:00:00")
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("-30m").unwrap().resolve_from(now),
+            local_time("2025-02-13 11:30:00")
+        );
+        assert_eq!(
+            TimeDefinition::from_str("-10h").unwrap().resolve_from(now),
+            local_time("2025-02-13 02:00:00")
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("-3s").unwrap().resolve_from(now),
+            local_time("2025-02-13 11:59:57")
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("2021-01-01")
+                .unwrap()
+                .resolve_from(now),
+            local_time("2021-01-01 00:00:00")
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("2021-01-01")
+                .unwrap()
+                .resolve_to(now),
+            local_time("2021-01-01 23:59:59")
+                .with_nanosecond(999_999_999)
+                .unwrap()
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("2021-01-01 01:02:03")
+                .unwrap()
+                .resolve_from(now),
+            local_time("2021-01-01 01:02:03")
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("2021-01-01 01:02:03")
+                .unwrap()
+                .resolve_to(now),
+            local_time("2021-01-01 01:02:03")
+                .with_nanosecond(999_999_999)
+                .unwrap()
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("2021-01-01 01:02")
+                .unwrap()
+                .resolve_from(now),
+            local_time("2021-01-01 01:02:00")
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("2021-01-01 01:02")
+                .unwrap()
+                .resolve_to(now),
+            local_time("2021-01-01 01:02:59")
+                .with_nanosecond(999_999_999)
+                .unwrap()
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("01:02:03")
+                .unwrap()
+                .resolve_from(now),
+            local_time("2025-02-13 01:02:03")
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("01:02:03")
+                .unwrap()
+                .resolve_to(now),
+            local_time("2025-02-13 01:02:03")
+                .with_nanosecond(999_999_999)
+                .unwrap()
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("01:02").unwrap().resolve_from(now),
+            local_time("2025-02-13 01:02:00")
+        );
+
+        assert_eq!(
+            TimeDefinition::from_str("01:02").unwrap().resolve_to(now),
+            local_time("2025-02-13 01:02:59")
+                .with_nanosecond(999_999_999)
+                .unwrap()
+        );
+    }
+
     #[tokio::test]
     async fn test_max_one_offset_configuration() {
         assert!(Args::try_validated_from([
@@ -580,6 +834,15 @@ mod tests {
                 .await
                 .is_err()
         );
+
+        assert!(Args::try_validated_from([
+            "kiek",
+            "test-topic",
+            "--offset=earliest",
+            "--from=now"
+        ])
+        .await
+        .is_err());
     }
 
     #[tokio::test]

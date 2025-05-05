@@ -1,5 +1,8 @@
 use assert_cmd::prelude::*;
-use assertables::{assert_ends_with, assert_starts_with};
+use assertables::{
+    assert_contains, assert_ends_with, assert_is_empty, assert_not_contains, assert_starts_with,
+};
+use chrono::Local;
 use futures::future::join_all;
 use murmur2::{murmur2, KAFKA_SEED};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
@@ -124,28 +127,6 @@ async fn filter_key_and_value() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn empty_topic(topic_name: &str, partitions: i32) -> Result<(), Box<dyn std::error::Error>> {
-    let mut client_config = ClientConfig::new();
-    client_config.set("bootstrap.servers", "127.0.0.1:9092");
-
-    let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(2)));
-
-    let admin_client: AdminClient<_> = client_config
-        .create()
-        .expect("Failed to create admin client");
-
-    let _ = admin_client.delete_topics(&[topic_name], &opts).await;
-
-    let topics = vec![NewTopic::new(
-        topic_name,
-        partitions,
-        TopicReplication::Fixed(1),
-    )];
-    admin_client.create_topics(&topics, &opts).await?;
-
-    Ok(())
-}
-
 #[tokio::test]
 async fn scan_for_key() -> Result<(), Box<dyn std::error::Error>> {
     let topic_name = "scan_for_key";
@@ -252,6 +233,294 @@ async fn scan_for_key_with_wrong_partitioning() -> Result<(), Box<dyn std::error
     cmd.assert().failure().stderr(predicates::str::contains(
         format!("You can pass the specific partition as {topic_name}-p or use -f, --filter {scanned_key} instead."),
     ));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_with_from_relative_date() -> Result<(), Box<dyn std::error::Error>> {
+    let topic_name = "read-with-from-relative-date";
+
+    empty_topic(topic_name, 2).await?;
+
+    produce_messages(
+        topic_name,
+        None,
+        None,
+        vec![
+            ("0", "before"),
+            ("1", "before"),
+            ("2", "before"),
+            ("3", "before"),
+        ],
+    )
+    .await?;
+
+    sleep(std::time::Duration::from_millis(1500)).await;
+
+    produce_messages(
+        topic_name,
+        None,
+        None,
+        vec![
+            ("0", "after"),
+            ("1", "after"),
+            ("2", "after"),
+            ("3", "after"),
+        ],
+    )
+    .await?;
+
+    let mut cmd = Command::cargo_bin("kiek")?;
+
+    cmd.arg(topic_name);
+    cmd.arg("--no-colors");
+    cmd.arg("-v");
+    cmd.arg("--max=4");
+    cmd.arg("--from=-1s");
+
+    let output = cmd.output()?;
+    let output = String::from_utf8(output.stdout)?;
+
+    assert_contains!(output, "0 after");
+    assert_contains!(output, "1 after");
+    assert_contains!(output, "2 after");
+    assert_contains!(output, "3 after");
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn read_from_now() -> Result<(), Box<dyn std::error::Error>> {
+    let topic_name = "read_from_now";
+
+    empty_topic(topic_name, 1).await?;
+
+    produce_messages(topic_name, None, None, vec![("0", "before")]).await?;
+
+    sleep(std::time::Duration::from_millis(1000)).await;
+
+    let mut cmd = Command::cargo_bin("kiek")?;
+
+    cmd.arg(topic_name);
+    cmd.arg("--no-colors");
+    cmd.arg("--from=now");
+    cmd.arg("--max=1");
+
+    let child = cmd.stdout(Stdio::piped()).spawn()?;
+
+    sleep(std::time::Duration::from_millis(500)).await;
+
+    let handle = tokio::spawn(async move {
+        loop {
+            produce_messages(topic_name, None, None, vec![("0", "after")])
+                .await
+                .unwrap();
+            sleep(std::time::Duration::from_millis(10)).await;
+        }
+    });
+
+    let output = block_in_place(|| child.wait_with_output())?;
+
+    handle.abort();
+
+    let output = String::from_utf8(output.stdout)?;
+
+    let lines: Vec<&str> = output.lines().collect();
+
+    assert_eq!(lines.len(), 1);
+    assert_starts_with!(lines[0], format!("{topic_name}-0"));
+    assert_contains!(lines[0], "0 after");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_from_to_relative_dates() -> Result<(), Box<dyn std::error::Error>> {
+    let topic_name = "read-from-to-relative-dates";
+
+    empty_topic(topic_name, 2).await?;
+
+    let wait = 2;
+
+    produce_messages(
+        topic_name,
+        None,
+        None,
+        vec![
+            ("0", "before"),
+            ("1", "before"),
+            ("2", "before"),
+            ("3", "before"),
+        ],
+    )
+    .await?;
+
+    sleep(std::time::Duration::from_millis(wait * 1000)).await;
+
+    produce_messages(
+        topic_name,
+        None,
+        None,
+        vec![
+            ("0", "actual"),
+            ("1", "actual"),
+            ("2", "actual"),
+            ("3", "actual"),
+        ],
+    )
+    .await?;
+
+    sleep(std::time::Duration::from_millis(wait * 1000)).await;
+
+    produce_messages(
+        topic_name,
+        None,
+        None,
+        vec![
+            ("0", "after"),
+            ("1", "after"),
+            ("2", "after"),
+            ("3", "after"),
+        ],
+    )
+    .await?;
+
+    let mut cmd = Command::cargo_bin("kiek")?;
+
+    cmd.arg(topic_name);
+    cmd.arg("--no-colors");
+    cmd.arg("-v");
+    cmd.arg(format!("--from=-{}s", 2 * wait));
+    cmd.arg(format!("--to=-{}s", wait));
+
+    let output = cmd.output()?;
+    let error = String::from_utf8(output.stderr)?;
+    let output = String::from_utf8(output.stdout)?;
+
+    assert_is_empty!(error);
+
+    assert_contains!(output, "0 actual");
+    assert_contains!(output, "1 actual");
+    assert_contains!(output, "2 actual");
+    assert_contains!(output, "3 actual");
+
+    assert_not_contains!(output, "0 before");
+    assert_not_contains!(output, "1 before");
+    assert_not_contains!(output, "2 before");
+    assert_not_contains!(output, "3 before");
+
+    assert_not_contains!(output, "0 after");
+    assert_not_contains!(output, "1 after");
+    assert_not_contains!(output, "2 after");
+    assert_not_contains!(output, "3 after");
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_from_to_absolute_dates() -> Result<(), Box<dyn std::error::Error>> {
+    let topic_name = "read-from-to-absolute-dates";
+
+    empty_topic(topic_name, 2).await?;
+
+    produce_messages(
+        topic_name,
+        None,
+        None,
+        vec![
+            ("0", "before"),
+            ("1", "before"),
+            ("2", "before"),
+            ("3", "before"),
+        ],
+    )
+    .await?;
+
+    sleep(std::time::Duration::from_millis(1000)).await;
+
+    let from = chrono::Utc::now().with_timezone(&Local);
+
+    produce_messages(
+        topic_name,
+        None,
+        None,
+        vec![
+            ("0", "actual"),
+            ("1", "actual"),
+            ("2", "actual"),
+            ("3", "actual"),
+        ],
+    )
+    .await?;
+
+    let to = chrono::Utc::now().with_timezone(&Local);
+
+    sleep(std::time::Duration::from_millis(1000)).await;
+
+    produce_messages(
+        topic_name,
+        None,
+        None,
+        vec![
+            ("0", "after"),
+            ("1", "after"),
+            ("2", "after"),
+            ("3", "after"),
+        ],
+    )
+    .await?;
+
+    let mut cmd = Command::cargo_bin("kiek")?;
+
+    cmd.arg(topic_name);
+    cmd.arg("--no-colors");
+    cmd.arg("-v");
+    cmd.arg(format!("--from={}", from.format("%Y-%m-%d %H:%M:%S")));
+    cmd.arg(format!("--to={}", to.format("%Y-%m-%d %H:%M:%S")));
+
+    let output = cmd.output()?;
+    let error = String::from_utf8(output.stderr)?;
+    let output = String::from_utf8(output.stdout)?;
+
+    assert_is_empty!(error);
+
+    assert_contains!(output, "0 actual");
+    assert_contains!(output, "1 actual");
+    assert_contains!(output, "2 actual");
+    assert_contains!(output, "3 actual");
+
+    assert_not_contains!(output, "0 before");
+    assert_not_contains!(output, "1 before");
+    assert_not_contains!(output, "2 before");
+    assert_not_contains!(output, "3 before");
+
+    assert_not_contains!(output, "0 after");
+    assert_not_contains!(output, "1 after");
+    assert_not_contains!(output, "2 after");
+    assert_not_contains!(output, "3 after");
+    Ok(())
+}
+
+// Helpers
+
+async fn empty_topic(topic_name: &str, partitions: i32) -> Result<(), Box<dyn std::error::Error>> {
+    let mut client_config = ClientConfig::new();
+    client_config.set("bootstrap.servers", "127.0.0.1:9092");
+
+    let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(2)));
+
+    let admin_client: AdminClient<_> = client_config
+        .create()
+        .expect("Failed to create admin client");
+
+    let _ = admin_client.delete_topics(&[topic_name], &opts).await;
+
+    let topics = vec![NewTopic::new(
+        topic_name,
+        partitions,
+        TopicReplication::Fixed(1),
+    )];
+    admin_client.create_topics(&topics, &opts).await?;
 
     Ok(())
 }
