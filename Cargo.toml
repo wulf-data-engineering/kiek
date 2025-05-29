@@ -5,29 +5,29 @@ edition = "2021"
 
 [dependencies]
 # Generic
-tokio = { version = "1.45.0", features = ["full"] }
+tokio = { version = "1.45.1", features = ["full"] }
 futures = "0.3.31"
 log = "0.4.27"
 simple_logger = "5.0.0"
 serde = "1.0.219"
 chrono = "0.4.41"
 regex = "1.11.1"
-openssl = { version = "0.10.72", features = ["vendored"] } # vendored required for codesigning
+openssl = { version = "0.10.73", features = ["vendored"] } # vendored required for codesigning
 
 # AWS
-reqwest = { version = "0.12.15", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12.18", default-features = false, features = ["rustls-tls"] }
 aws-types = "1.3.6"
 aws-runtime = "1.5.6"
-aws-config = { version = "1.5.18", features = ["rustls"] }
+aws-config = { version = "1.6.3", features = ["rustls"] }
 aws-sdk-sts = { version = "1.68.0", features = ["rustls"] }
-aws-sdk-glue = { version = "1.93.0", features = ["rustls"] }
+aws-sdk-glue = { version = "1.98.0", features = ["rustls"] }
 
 # Specific application
-clap = { version = "4.5.38", features = ["derive"] }
-clap_complete = "4.5.50"
+clap = { version = "4.5.39", features = ["derive"] }
+clap_complete = "4.5.51"
 rdkafka = { version = "0.37.0", features = ["default", "ssl", "zstd"] }
 aws-msk-iam-sasl-signer = "1.0.0"
-uuid = { version = "1.16.0", features = ["v4"] }
+uuid = { version = "1.17.0", features = ["v4"] }
 apache-avro = "0.18.0"
 serde_json = "1.0.140"
 murmur2 = "0.1.0"
