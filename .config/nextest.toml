@@ -1,0 +1,19 @@
+[profile.default]
+# Show output for passing tests
+success-output = "immediate"
+# Show output for failing tests
+failure-output = "immediate"
+# Number of test threads to run simultaneously
+test-threads = 4
+# Timeout for each test
+slow-timeout = "60s"
+# Timeout for leaky tests
+leak-timeout = "10s"
+
+[profile.ci]
+# CI profile with more conservative settings
+test-threads = 2
+slow-timeout = "120s"
+leak-timeout = "30s"
+# Fail fast on first failure in CI
+fail-fast = true
