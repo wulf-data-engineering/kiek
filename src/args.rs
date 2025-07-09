@@ -108,6 +108,7 @@ pub struct Args {
     ///
     /// If omitted and -u, --username is set, assumes SASL/PLAIN authentication.
     /// If omitted and AWS related options are set, assumes MSK IAM authentication.
+    /// If a known MSK IAM port (9094, 9098) is used, assumes MSK IAM authentication.
     /// Otherwise, no authentication is attempted.
     #[arg(short, long, aliases = ["auth"], value_name = "plain|msk-iam|...", verbatim_doc_comment)]
     authentication: Option<Authentication>,
@@ -247,7 +248,12 @@ impl Args {
     }
 
     fn derive_settings_from_port(&mut self) {
-        if let Some(port) = self.bootstrap_servers().split(',').next().and_then(|s| s.rsplit(':').next()) {
+        if let Some(port) = self
+            .bootstrap_servers()
+            .split(',')
+            .next()
+            .and_then(|s| s.rsplit(':').next())
+        {
             if self.authentication.is_none() {
                 self.authentication = match port {
                     "9094" | "9098" => Some(Authentication::MskIam),
@@ -958,18 +964,16 @@ mod tests {
     #[tokio::test]
     async fn test_derive_auth_from_port() {
         // MSK IAM on port 9098
-        let args =
-            Args::try_validated_from(["kiek", "-b", "b-1.test.kafka.aws.com:9098"])
-                .await
-                .unwrap();
+        let args = Args::try_validated_from(["kiek", "-b", "b-1.test.kafka.aws.com:9098"])
+            .await
+            .unwrap();
         assert_eq!(args.authentication(), Authentication::MskIam);
         assert!(!args.no_ssl);
 
         // MSK IAM on port 9094
-        let args =
-            Args::try_validated_from(["kiek", "-b", "b-1.test.kafka.aws.com:9094"])
-                .await
-                .unwrap();
+        let args = Args::try_validated_from(["kiek", "-b", "b-1.test.kafka.aws.com:9094"])
+            .await
+            .unwrap();
         assert_eq!(args.authentication(), Authentication::MskIam);
         assert!(args.no_ssl);
 
