@@ -106,7 +106,7 @@ kiek some-topic --from=-"2023-10-01 12:34:56"
 The **--from** and **--to** options let you specify a time range to start or stop reading messages.
 
 Absolute timestamps are in **local time**, so that they match the timestamps in the messages you read.  
-If you pass an absolute day, minute or second, kiek will treat them inclusively: 
+If you pass an absolute day, minute or second, kiek will treat them inclusively:
 
 * `--from=-"2023-10-01"` means `2023-10-01 00:00:00` while
 * `--to=-"2023-10-01"` means `2023-10-01 23:59:59.999999`.
@@ -187,7 +187,12 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
 
 ### Publish
 
-- cargo nextest
+- Landing Page
+- Revise docs
+  - installation.md
+  - usage.md
+  - release.md
+  - roadmap.md
 
 ### Increment Capabilities
 
@@ -195,16 +200,17 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
     - Support OAuth (SASL OAUTHBEARER) via --token
     - OAuth (SASL OAUTHBEARER) for Schema Registry (Authorization: Bearer < --token >)
     - Add overrides for security settings for Schema Registry
+    - Support Protocol Buffers (How can we detect them for Confluent and AWS Glue?)
 - UX
+    - -l --list[-topics]
+    - -d --describe[-topic]
     - Explain schema lookup failures
     - Indicate reached head of topic with --earliest
     - Topic Profiles / --env for environment profiles
     - **Derive authentication / no-ssl default from ports**: https://docs.aws.amazon.com/msk/latest/developerguide/port-info.html
     - Jump Host support
-- Navigation
     - Default limit and continue with <enter>
-- Output Formats
-    - Key, Value, Timestamp, Offset, Partition, Topic
+    - Output Formats: Key, Value, Timestamp, Offset, Partition, Topic
 
 ### Increment to kieker
 
