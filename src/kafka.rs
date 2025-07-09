@@ -248,10 +248,7 @@ where
 ///
 /// Lists all topics from the Kafka cluster
 ///
-pub async fn list_topics<Ctx>(
-    consumer: &StreamConsumer<Ctx>,
-    feedback: &Feedback,
-) -> Result<()>
+pub async fn list_topics<Ctx>(consumer: &StreamConsumer<Ctx>, feedback: &Feedback) -> Result<()>
 where
     Ctx: KiekContext + 'static,
 {

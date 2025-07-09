@@ -28,9 +28,9 @@ use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
 use crate::kafka::{
-    assign_partition_for_key, assign_topic_or_partition, format_timestamp, list_topics, partition_for_plain_key,
-    seek_start_offsets, select_topic_or_partition, Assigment, FormatBootstrapServers,
-    TopicOrPartition, DEFAULT_BROKER_STRING, DEFAULT_PORT,
+    assign_partition_for_key, assign_topic_or_partition, format_timestamp, list_topics,
+    partition_for_plain_key, seek_start_offsets, select_topic_or_partition, Assigment,
+    FormatBootstrapServers, TopicOrPartition, DEFAULT_BROKER_STRING, DEFAULT_PORT,
 };
 use crate::payload::{format_payload, parse_payload, Payload};
 use crate::schema_registry::SchemaRegistryFacade;
@@ -116,7 +116,7 @@ async fn run(args: Args) -> Result<()> {
                 &feedback,
             )
             .await?;
-            
+
             if args.list {
                 list_topics(&consumer, &feedback).await
             } else {
@@ -138,7 +138,7 @@ async fn run(args: Args) -> Result<()> {
                 args.no_ssl,
             )
             .await?;
-            
+
             if args.list {
                 list_topics(&consumer, &feedback).await
             } else {

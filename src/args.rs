@@ -345,7 +345,6 @@ impl Args {
     }
 }
 
-
 fn topic_partition_regex() -> &'static Regex {
     static TOPIC_PARTITION_REGEX: OnceLock<Regex> = OnceLock::new();
     TOPIC_PARTITION_REGEX.get_or_init(|| Regex::new(r"^(.+)-([0-9]+)$").unwrap())
@@ -715,11 +714,17 @@ mod tests {
 
         let args = Args::parse_from(["kiek", "--list", "-b", "kafka.example.com:9092"]);
         assert!(args.list);
-        assert_eq!(args.bootstrap_servers, Some("kafka.example.com:9092".to_string()));
+        assert_eq!(
+            args.bootstrap_servers,
+            Some("kafka.example.com:9092".to_string())
+        );
 
         let args = Args::parse_from(["kiek", "--list-topics", "-b", "kafka.example.com:9092"]);
         assert!(args.list);
-        assert_eq!(args.bootstrap_servers, Some("kafka.example.com:9092".to_string()));
+        assert_eq!(
+            args.bootstrap_servers,
+            Some("kafka.example.com:9092".to_string())
+        );
     }
 
     #[test]
