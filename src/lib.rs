@@ -28,7 +28,7 @@ use crate::feedback::Feedback;
 use crate::glue::GlueSchemaRegistryFacade;
 use crate::highlight::Highlighting;
 use crate::kafka::{
-    assign_partition_for_key, assign_topic_or_partition, format_timestamp, partition_for_plain_key,
+    assign_partition_for_key, assign_topic_or_partition, format_timestamp, list_topics, partition_for_plain_key,
     seek_start_offsets, select_topic_or_partition, Assigment, FormatBootstrapServers,
     TopicOrPartition, DEFAULT_BROKER_STRING, DEFAULT_PORT,
 };
@@ -116,14 +116,19 @@ async fn run(args: Args) -> Result<()> {
                 &feedback,
             )
             .await?;
-            connect(
-                args,
-                &feedback,
-                glue_schema_registry_facade,
-                schema_registry_facade,
-                consumer,
-            )
-            .await
+            
+            if args.list {
+                list_topics(&consumer, &feedback).await
+            } else {
+                connect(
+                    args,
+                    &feedback,
+                    glue_schema_registry_facade,
+                    schema_registry_facade,
+                    consumer,
+                )
+                .await
+            }
         }
         _ => {
             let consumer = kafka::create_consumer(
@@ -133,14 +138,19 @@ async fn run(args: Args) -> Result<()> {
                 args.no_ssl,
             )
             .await?;
-            connect(
-                args,
-                &feedback,
-                glue_schema_registry_facade,
-                schema_registry_facade,
-                consumer,
-            )
-            .await
+            
+            if args.list {
+                list_topics(&consumer, &feedback).await
+            } else {
+                connect(
+                    args,
+                    &feedback,
+                    glue_schema_registry_facade,
+                    schema_registry_facade,
+                    consumer,
+                )
+                .await
+            }
         }
     }
 }

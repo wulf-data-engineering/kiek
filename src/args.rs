@@ -165,6 +165,10 @@ pub struct Args {
     #[arg(long, verbatim_doc_comment)]
     pub role_arn: Option<String>,
 
+    /// List available topics
+    #[arg(long, action, aliases = ["list-topics"])]
+    pub list: bool,
+
     /// Indent JSON output
     ///
     /// Adds indentation to JSON and JSON representation for AVRO for better readability.
@@ -340,6 +344,7 @@ impl Args {
         self.key.is_some() || self.filter.is_some()
     }
 }
+
 
 fn topic_partition_regex() -> &'static Regex {
     static TOPIC_PARTITION_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -632,6 +637,7 @@ mod tests {
         assert_eq!(args.role_arn, None);
         assert!(!args.verbose);
         assert_eq!(args.offset, None);
+        assert!(!args.list);
 
         let args = Args::parse_from([
             "kiek",
@@ -659,6 +665,7 @@ mod tests {
         assert_eq!(args.role_arn, None);
         assert!(args.verbose);
         assert_eq!(args.offset, Some(StartOffset::Earliest));
+        assert!(!args.list);
 
         let args = Args::parse_from([
             "kiek",
@@ -692,6 +699,27 @@ mod tests {
         );
         assert!(!args.verbose);
         assert_eq!(args.offset, Some(StartOffset::Relative(3)));
+        assert!(!args.list);
+    }
+
+    #[test]
+    fn test_list_flag() {
+        let args = Args::parse_from(["kiek", "--list"]);
+        assert!(args.list);
+        assert_eq!(args.topic_or_partition, None);
+        assert_eq!(args.bootstrap_servers, None);
+
+        let args = Args::parse_from(["kiek", "--list-topics"]);
+        assert!(args.list);
+        assert_eq!(args.topic_or_partition, None);
+
+        let args = Args::parse_from(["kiek", "--list", "-b", "kafka.example.com:9092"]);
+        assert!(args.list);
+        assert_eq!(args.bootstrap_servers, Some("kafka.example.com:9092".to_string()));
+
+        let args = Args::parse_from(["kiek", "--list-topics", "-b", "kafka.example.com:9092"]);
+        assert!(args.list);
+        assert_eq!(args.bootstrap_servers, Some("kafka.example.com:9092".to_string()));
     }
 
     #[test]
