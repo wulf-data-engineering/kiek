@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Generic
-tokio = { version = "1.46.0", features = ["full"] }
+tokio = { version = "1.46.1", features = ["full"] }
 futures = "0.3.31"
 log = "0.4.27"
 simple_logger = "5.0.0"
@@ -23,9 +23,9 @@ aws-sdk-sts = { version = "1.68.0", features = ["rustls"] }
 aws-sdk-glue = { version = "1.99.0", features = ["rustls"] }
 
 # Specific application
-clap = { version = "4.5.40", features = ["derive"] }
-clap_complete = "4.5.54"
-rdkafka = { version = "0.37.0", features = ["default", "ssl", "zstd"] }
+clap = { version = "4.5.41", features = ["derive"] }
+clap_complete = "4.5.55"
+rdkafka = { version = "0.38.0", features = ["default", "ssl", "zstd"] }
 aws-msk-iam-sasl-signer = "1.0.0"
 uuid = { version = "1.17.0", features = ["v4"] }
 apache-avro = "0.19.0"
