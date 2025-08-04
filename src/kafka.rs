@@ -246,6 +246,35 @@ where
 }
 
 ///
+/// Lists all topics from the Kafka cluster
+///
+pub async fn list_topics<Ctx>(consumer: &StreamConsumer<Ctx>, feedback: &Feedback) -> Result<()>
+where
+    Ctx: KiekContext + 'static,
+{
+    feedback.info("Fetching", "topics from Kafka cluster");
+
+    let metadata = map_errors(consumer, consumer.fetch_metadata(None, TIMEOUT)).await?;
+
+    let topics: Vec<_> = metadata
+        .topics()
+        .iter()
+        .map(|t| (t.name().to_string(), t.partitions().len()))
+        .collect();
+
+    if topics.is_empty() {
+        feedback.info("No topics", "available in the Kafka cluster");
+    } else {
+        feedback.clear();
+        for (topic_name, partition_count) in topics {
+            println!("{} ({})", topic_name, partition_count);
+        }
+    }
+
+    Ok(())
+}
+
+///
 /// Loads the topics from the Kafka cluster and maybe prompt the user to select one.
 ///
 /// - single topic => use that one
