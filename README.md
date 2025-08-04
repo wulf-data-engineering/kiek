@@ -137,6 +137,13 @@ kiek supports the standard Kafka mechanisms SASL/PLAIN, SASL/SCRAM-SHA-256 and S
 
 kiek will prompt for a password if you have not provided it.
 
+By default, `kiek` assumes remote connections use SSL/TLS. For standard plaintext ports, this is disabled automatically.
+
+```shell
+kiek -b kafka.example.com:9093 # SSL is enabled by default
+kiek -b kafka.example.com:9092 # SSL is disabled by default for this port
+```
+
 ### Authenticate at AWS MSK
 
 ```shell
@@ -144,10 +151,13 @@ kiek -b kafka.example.com:9092 -a msk-iam                   # uses the default p
 kiek -b kafka.example.com:9092 -p my-profile
 kiek -b kafka.example.com:9092 -p my-profile --role my-role # assumes the role
 kiek -b kafka.example.com:9092 -p my-profile -r eu-east-1
+kiek -b kafka.example.com:9098                              # MSK IAM & SSL enabled by port
+kiek -b kafka.example.com:9094                              # MSK IAM enabled by port, SSL disabled
 ```
 
 If you connect to an AWS MSK cluster, you can use the `msk-iam` authentication method.  
-The MSK IAM authentication is also assumed if you pass the **--profile**, **-p** option for an AWS profile.
+The MSK IAM authentication is also assumed if you pass the **--profile**, **-p** option for an AWS profile or connect
+to a typical AWS MSK port.
 
 kiek checks if SSO is involved and informs you if the token expired.
 
@@ -216,7 +226,6 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
     - Explain schema lookup failures
     - Indicate reached head of topic with --earliest
     - Topic Profiles / --env for environment profiles
-    - **Derive authentication / no-ssl default from ports**: https://docs.aws.amazon.com/msk/latest/developerguide/port-info.html
     - Jump Host support
     - Default limit and continue with <enter>
     - Output Formats: Key, Value, Timestamp, Offset, Partition, Topic
