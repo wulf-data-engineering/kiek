@@ -48,6 +48,16 @@ kiek
 Connects to [Redpanda](https://www.redpanda.com) ([suggested](docker-compose.yml) locally) or Kafka on 172.0.0.1:9092
 without authentication and lists topics for selection.
 
+### List topics
+
+```shell
+kiek --list                       # list topics from local cluster
+kiek --list-topics                # same as above
+kiek --list -b kafka.example.com:9092 # list topics from remote cluster
+```
+
+Lists all available topics in the Kafka cluster with their partition counts.
+
 ### Follow a topic
 
 ```shell
@@ -212,6 +222,7 @@ the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap
     - Add overrides for security settings for Schema Registry
     - Support Protocol Buffers (How can we detect them for Confluent and AWS Glue?)
 - UX
+    - -d --describe[-topic]
     - Explain schema lookup failures
     - Indicate reached head of topic with --earliest
     - Topic Profiles / --env for environment profiles
