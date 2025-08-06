@@ -188,61 +188,10 @@ kiek --help # detailed help
 
 See the help for all options.
 
-## Releasing
+## Development
 
-To release a new version, start
-the [Prepare Release](https://github.com/wulf-data-engineering/kiek/actions/workflows/release_pr.yml) workflow with
-major, minor or
-patch as input.
+See **[development](docs/development.md)** for details on building and testing `kiek`.
 
-It creates a pull request for the new version.
+See **[release](docs/release.md)** for details on releasing a new version.
 
-Merging that pull request starts
-the [Release](https://github.com/wulf-data-engineering/kiek/actions/workflows/release.yml) workflow, which creates a new
-draft release with the binaries for macOS and Linux.
-It also drafts a pull request for
-the [Homebrew tap Formula](https://github.com/wulf-data-engineering/homebrew-tap/blob/main/Formula/kiek.rb).
-
-## Roadmap
-
-### Publish
-
-- Landing Page
-- Revise docs
-  - installation.md
-  - usage.md
-  - release.md
-  - roadmap.md
-
-### Increment Capabilities
-
-- Services
-    - Support OAuth (SASL OAUTHBEARER) via --token
-    - OAuth (SASL OAUTHBEARER) for Schema Registry (Authorization: Bearer < --token >)
-    - Add overrides for security settings for Schema Registry
-    - Support Protocol Buffers (How can we detect them for Confluent and AWS Glue?)
-- UX
-    - -d --describe[-topic]
-    - Explain schema lookup failures
-    - Indicate reached head of topic with --earliest
-    - Topic Profiles / --env for environment profiles
-    - Jump Host support
-    - Default limit and continue with <enter>
-    - Output Formats: Key, Value, Timestamp, Offset, Partition, Topic
-
-### Increment to kieker
-
-- Tauri
-- Cluster Configuration
-- Topic List
-    - Favorites (already scanned)
-- Datadog view
-    - Table view
-        - Topic Partition
-        - Offset
-    - Key Filter
-    - Timestamp / Offset Input
-    - Timeline
-        - no. of messages -> bars
-        - null / non-null -> transparency
-        - schema versions -> color
+See **[roadmap](docs/roadmap.md)** regarding the next steps.
