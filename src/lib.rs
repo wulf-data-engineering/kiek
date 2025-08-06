@@ -244,7 +244,7 @@ where
     let mut reconnects = 0;
 
     loop {
-        let result = read_batch(
+        let future = read_batch(
             &args,
             &consumer,
             &assigment,
@@ -255,13 +255,19 @@ where
             &max_date,
             &mut received_messages,
             &mut paused,
-        )
-        .await;
+        );
+
+        let result = if let Some(timeout) = args.timeout {
+            tokio::time::timeout(Duration::from_secs(timeout), future).await
+        } else {
+            Ok(future.await)
+        };
+
         match result {
-            Ok(_) => {
+            Ok(Ok(_)) => {
                 reconnects = 0;
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 if e.to_string() == KiekError::BROKER_TRANSPORT_FAILURE {
                     reconnects += 1;
                     if reconnects > 25 {
@@ -280,6 +286,10 @@ where
                 } else {
                     return Err(e);
                 }
+            }
+            Err(_) => {
+                info!("Reached timeout. Finishing up.");
+                break Ok(());
             }
         }
 
