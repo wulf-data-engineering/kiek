@@ -86,6 +86,10 @@ pub struct Args {
     #[arg(long, group = "end", aliases = ["limit"], value_name = "n")]
     max: Option<usize>,
 
+    /// Consumer stops after n seconds of inactivity
+    #[arg(long, value_name = "n")]
+    pub timeout: Option<u64>,
+
     /// Optional key to search scanning just the partition with the key
     ///
     /// If set, only messages with the given key are printed.

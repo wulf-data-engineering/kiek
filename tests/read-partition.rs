@@ -13,6 +13,27 @@ use tokio::task::block_in_place;
 use tokio::time::sleep;
 
 #[tokio::test]
+async fn read_nothing() -> Result<(), Box<dyn std::error::Error>> {
+    let topic_name = "read_nothing";
+
+    empty_topic(topic_name, 1).await?;
+
+    let mut cmd = Command::cargo_bin("kiek")?;
+
+    cmd.arg(topic_name);
+    cmd.arg("--no-colors");
+    cmd.arg("--timeout=1");
+
+    let output = cmd.output()?;
+    let output = String::from_utf8(output.stdout)?;
+    let lines: Vec<&str> = output.lines().collect();
+
+    assert_is_empty!(lines);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn read_from_beginning() -> Result<(), Box<dyn std::error::Error>> {
     let topic_name = "read_from_beginning";
 
@@ -31,6 +52,7 @@ async fn read_from_beginning() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
     cmd.arg("--max=2");
+    cmd.arg("--timeout=10");
 
     let output = cmd.output()?;
     let output = String::from_utf8(output.stdout)?;
@@ -58,6 +80,7 @@ async fn read_from_end() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg("--no-colors");
     cmd.arg("--latest");
     cmd.arg("--max=1");
+    cmd.arg("--timeout=5");
 
     let child = cmd.stdout(Stdio::piped()).spawn()?;
 
@@ -110,6 +133,7 @@ async fn filter_key_and_value() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg("--no-colors");
     cmd.arg("--max=4");
     cmd.arg("--filter=baz");
+    cmd.arg("--timeout=5");
 
     let output = cmd.output()?;
     let output = String::from_utf8(output.stdout)?;
@@ -172,6 +196,7 @@ async fn scan_for_key() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg("--no-colors");
     cmd.arg("--max=2");
     cmd.arg(format!("--key={scanned_key}"));
+    cmd.arg("--timeout=5");
 
     let output = cmd.output()?;
     let output = String::from_utf8(output.stdout)?;
@@ -227,6 +252,7 @@ async fn scan_for_key_with_wrong_partitioning() -> Result<(), Box<dyn std::error
     cmd.arg("--no-colors");
     cmd.arg("-v");
     cmd.arg(format!("--key={scanned_key}"));
+    cmd.arg("--timeout=5");
 
     // Then kiek should fail indicating that the wrong partitioning
 
@@ -278,6 +304,7 @@ async fn read_with_from_relative_date() -> Result<(), Box<dyn std::error::Error>
     cmd.arg("-v");
     cmd.arg("--max=4");
     cmd.arg("--from=-1s");
+    cmd.arg("--timeout=5");
 
     let output = cmd.output()?;
     let output = String::from_utf8(output.stdout)?;
@@ -306,6 +333,7 @@ async fn read_from_now() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg("--no-colors");
     cmd.arg("--from=now");
     cmd.arg("--max=1");
+    cmd.arg("--timeout=5");
 
     let child = cmd.stdout(Stdio::piped()).spawn()?;
 
@@ -393,6 +421,7 @@ async fn read_from_to_relative_dates() -> Result<(), Box<dyn std::error::Error>>
     cmd.arg("-v");
     cmd.arg(format!("--from=-{}s", 2 * wait));
     cmd.arg(format!("--to=-{}s", wait));
+    cmd.arg("--timeout=5");
 
     let output = cmd.output()?;
     let error = String::from_utf8(output.stderr)?;
@@ -477,6 +506,7 @@ async fn read_from_to_absolute_dates() -> Result<(), Box<dyn std::error::Error>>
     cmd.arg("-v");
     cmd.arg(format!("--from={}", from.format("%Y-%m-%d %H:%M:%S")));
     cmd.arg(format!("--to={}", to.format("%Y-%m-%d %H:%M:%S")));
+    cmd.arg("--timeout=5");
 
     let output = cmd.output()?;
     let error = String::from_utf8(output.stderr)?;
@@ -498,30 +528,6 @@ async fn read_from_to_absolute_dates() -> Result<(), Box<dyn std::error::Error>>
     assert_not_contains!(output, "1 after");
     assert_not_contains!(output, "2 after");
     assert_not_contains!(output, "3 after");
-    Ok(())
-}
-
-// Helpers
-
-async fn empty_topic(topic_name: &str, partitions: i32) -> Result<(), Box<dyn std::error::Error>> {
-    let mut client_config = ClientConfig::new();
-    client_config.set("bootstrap.servers", "127.0.0.1:9092");
-
-    let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(2)));
-
-    let admin_client: AdminClient<_> = client_config
-        .create()
-        .expect("Failed to create admin client");
-
-    let _ = admin_client.delete_topics(&[topic_name], &opts).await;
-
-    let topics = vec![NewTopic::new(
-        topic_name,
-        partitions,
-        TopicReplication::Fixed(1),
-    )];
-    admin_client.create_topics(&topics, &opts).await?;
-
     Ok(())
 }
 
@@ -548,6 +554,7 @@ async fn read_compressed() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
     cmd.arg(format!("--max={}", compressions.len()));
+    cmd.arg("--timeout=5");
 
     let output = cmd.output()?;
     let output = String::from_utf8(output.stdout)?;
@@ -557,6 +564,30 @@ async fn read_compressed() -> Result<(), Box<dyn std::error::Error>> {
         assert_starts_with!(lines[i], format!("{topic_name}-0"));
         assert_ends_with!(lines[i], format!("{} {}", compression, compression));
     }
+
+    Ok(())
+}
+
+// Helpers
+
+async fn empty_topic(topic_name: &str, partitions: i32) -> Result<(), Box<dyn std::error::Error>> {
+    let mut client_config = ClientConfig::new();
+    client_config.set("bootstrap.servers", "127.0.0.1:9092");
+
+    let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(2)));
+
+    let admin_client: AdminClient<_> = client_config
+        .create()
+        .expect("Failed to create admin client");
+
+    let _ = admin_client.delete_topics(&[topic_name], &opts).await;
+
+    let topics = vec![NewTopic::new(
+        topic_name,
+        partitions,
+        TopicReplication::Fixed(1),
+    )];
+    admin_client.create_topics(&topics, &opts).await?;
 
     Ok(())
 }
