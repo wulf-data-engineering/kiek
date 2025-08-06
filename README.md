@@ -37,6 +37,30 @@ cargo install --git https://github.com/wulf-data-engineering/kiek
 
 Make sure to have the `~/.cargo/bin` directory in your `PATH`.
 
+### Gemini CLI Integration
+
+You can integrate `kiek` with the Gemini CLI to interact with your Kafka cluster using natural language.
+
+#### 1. Download the Tool Definition
+
+Download the [`kiek_tool.py`](kiek_tool.py) file and place it in your project directory.
+
+#### 2. Configure Gemini CLI
+
+Tell Gemini CLI to use this tool definition. The `GEMINI_TOOLS` environment variable is a colon-separated list of paths. To add the `kiek` tool without overwriting existing values, use the following command:
+
+```bash
+export GEMINI_TOOLS=${GEMINI_TOOLS:+$GEMINI_TOOLS:}$PWD/kiek_tool.py
+```
+
+#### 3. Start a Conversation
+
+Now, you can start a new conversation with Gemini CLI and ask it to interact with your Kafka cluster, e.g.
+
+> List all Kafka topics.
+
+> How old is the youngest message in Kafka topic products?
+
 ## Usage
 
 ### Connect to local cluster
@@ -98,6 +122,16 @@ kiek some-topic -o=beginning -f="some string"
 ```
 The **--filter**, **-f** option lets kiek just print messages that contain a string in key or payload.  
 For string values it is a simple substring search, for AVRO payloads it is a check on the JSON representation.
+
+### Stop after a certain amount of messages or seconds of inactivity
+
+```shell
+kiek some-topic --max=10
+kiek some-topic --timeout=5
+```
+
+The **--max** option stops kiek after consuming a certain amount of messages.  
+The **--timeout** option stops kiek after a certain amount of seconds of inactivity.
 
 ### Start or stop at a specific point in time
 
