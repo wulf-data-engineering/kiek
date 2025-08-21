@@ -2331,9 +2331,9 @@ dependencies = [
 
 [[package]]
 name = "reachable"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bbc2fa4d15b99945c2cdb0063e4f4923e2e296524d47e80a5a879ef0dff7127"
+checksum = "baa76b9257db725c9015d7d17d5129160e31a25010b093db1ceedf7bcedcd02d"
 dependencies = [
  "dns-lookup",
  "futures",
@@ -2710,9 +2710,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.142"
+version = "1.0.143"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "030fedb782600dcbd6f02d479bf0d817ac3bb40d644745b769d6a96bc3afc5a7"
+checksum = "d401abef1d108fbd9cbaebc3e46611f4b1021f714a0597a71f41ee463f5f4a5a"
 dependencies = [
  "itoa",
  "memchr",
