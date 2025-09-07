@@ -7,7 +7,7 @@ edition = "2021"
 # Generic
 tokio = { version = "1.47.1", features = ["full"] }
 futures = "0.3.31"
-log = "0.4.27"
+log = "0.4.28"
 simple_logger = "5.0.0"
 serde = "1.0.219"
 chrono = "0.4.41"
@@ -23,18 +23,18 @@ aws-sdk-sts = { version = "1.68.0", features = ["rustls"] }
 aws-sdk-glue = { version = "1.99.0", features = ["rustls"] }
 
 # Specific application
-clap = { version = "4.5.46", features = ["derive"] }
+clap = { version = "4.5.47", features = ["derive"] }
 clap_complete = "4.5.57"
 rdkafka = { version = "0.38.0", features = ["default", "ssl", "zstd"] }
 aws-msk-iam-sasl-signer = "1.0.0"
-uuid = { version = "1.18.0", features = ["v4"] }
+uuid = { version = "1.18.1", features = ["v4"] }
 apache-avro = "0.20.0"
 serde_json = "1.0.143"
 murmur2 = "0.1.0"
 levenshtein = "1.0.5"
 dialoguer = "0.11.0"
 reachable = { version = "0.2.3", features = ["default"] }
-aws-credential-types = "1.2.2"
+aws-credential-types = "1.2.6"
 termion = "4.0.5"
 bigdecimal = "0.4.8"
 flate2 = "1.1.2"
