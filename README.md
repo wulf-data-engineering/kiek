@@ -111,7 +111,7 @@ kiek some-topic -o=beginning -k=some-key
 If you are looking for a specific key, you can scan the topic for it.
 kiek will calculate the partition for the key, follow that partition and print all messages with that key.
 
-**Please note:** That requires the default partitioning strategy of the Java Kafka cliebt (murmur2 hash). If you use a
+**Please note:** That requires the default partitioning strategy of the Java Kafka client (murmur2 hash). If you use a
 different strategy, you have to calculate the partition yourself. The librdkafka library (Kafka client for C/C++) by
 default does not use the murmur2 hash.
 
