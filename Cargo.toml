@@ -16,8 +16,8 @@ openssl = { version = "0.10.73", features = ["vendored"] } # vendored required f
 
 # AWS
 reqwest = { version = "0.12.15", default-features = false, features = ["rustls-tls"] }
-aws-types = "1.3.8"
-aws-runtime = "1.5.10"
+aws-types = "1.3.9"
+aws-runtime = "1.5.12"
 aws-config = { version = "1.6.3", features = ["rustls"] }
 aws-sdk-sts = { version = "1.68.0", features = ["rustls"] }
 aws-sdk-glue = { version = "1.99.0", features = ["rustls"] }
@@ -37,7 +37,7 @@ reachable = { version = "0.2.3", features = ["default"] }
 aws-credential-types = "1.2.6"
 termion = "4.0.5"
 bigdecimal = "0.4.8"
-flate2 = "1.1.2"
+flate2 = "1.1.4"
 
 [dev-dependencies]
 assert_cmd = "2.0.17"
