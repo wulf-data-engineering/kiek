@@ -12,19 +12,19 @@ simple_logger = "5.0.0"
 serde = "1.0.228"
 chrono = "0.4.42"
 regex = "1.12.2"
-openssl = { version = "0.10.74", features = ["vendored"] } # vendored required for codesigning
+openssl = { version = "0.10.75", features = ["vendored"] } # vendored required for codesigning
 
 # AWS
 reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls"] }
-aws-types = "1.3.9"
-aws-runtime = "1.5.12"
+aws-types = "1.3.10"
+aws-runtime = "1.5.13"
 aws-config = { version = "1.6.3", features = ["rustls"] }
 aws-sdk-sts = { version = "1.68.0", features = ["rustls"] }
 aws-sdk-glue = { version = "1.99.0", features = ["rustls"] }
 
 # Specific application
-clap = { version = "4.5.50", features = ["derive"] }
-clap_complete = "4.5.59"
+clap = { version = "4.5.53", features = ["derive"] }
+clap_complete = "4.5.61"
 rdkafka = { version = "0.38.0", features = ["default", "ssl", "zstd"] }
 aws-msk-iam-sasl-signer = "1.0.0"
 uuid = { version = "1.18.1", features = ["v4"] }
@@ -34,13 +34,13 @@ murmur2 = "0.1.0"
 levenshtein = "1.0.5"
 dialoguer = "0.12.0"
 reachable = { version = "0.2.3", features = ["default"] }
-aws-credential-types = "1.2.6"
-termion = "4.0.5"
+aws-credential-types = "1.2.10"
+termion = "4.0.6"
 bigdecimal = "0.4.9"
-flate2 = "1.1.4"
+flate2 = "1.1.5"
 
 [dev-dependencies]
-assert_cmd = "2.0.17"
+assert_cmd = "2.1.1"
 predicates = "3.1.3"
 assertables = "9.8.2"
 
