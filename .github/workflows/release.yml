@@ -55,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
       - name: Prepare artifacts
         run: |
           mv kiek-aarch64-apple-darwin/kiek-aarch64-apple-darwin.tar.gz .
@@ -107,7 +107,7 @@ jobs:
           repository: wulf-data-engineering/homebrew-tap
           token: ${{ secrets.BREW_TAP_PAT }}
       - name: Download artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: brew-formula
       - name: Upload Homebrew formula
