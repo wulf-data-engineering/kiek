@@ -41,7 +41,7 @@ jobs:
         run: |
           tar -czf kiek-${{ matrix.platform.target }}.tar.gz completions kiek
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: kiek-${{ matrix.platform.target }}
           path: kiek-${{ matrix.platform.target }}.tar.gz
@@ -86,7 +86,7 @@ jobs:
           export SHA256_LINUX=$(shasum -a 256 kiek-x86_64-unknown-linux-gnu.tar.gz | cut -d ' ' -f 1)
           sed "s/%VERSION%/$VERSION/g ; s/%SHA256_MAC%/$SHA256_MAC/g ; s/%SHA256_LINUX%/$SHA256_LINUX/g" .github/workflows/files/kiek.rb > kiek.rb
       - name: Upload Homebrew formula
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: brew-formula
           path: kiek.rb
