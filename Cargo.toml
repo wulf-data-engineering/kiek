@@ -28,7 +28,7 @@ clap_complete = "4.5.62"
 rdkafka = { version = "0.38.0", features = ["default", "ssl", "zstd"] }
 aws-msk-iam-sasl-signer = "1.0.0"
 uuid = { version = "1.19.0", features = ["v4"] }
-apache-avro = "0.20.0"
+apache-avro = "0.21.0"
 serde_json = "1.0.147"
 murmur2 = "0.1.0"
 levenshtein = "1.0.5"
