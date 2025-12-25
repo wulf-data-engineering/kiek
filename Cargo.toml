@@ -15,21 +15,21 @@ regex = "1.12.2"
 openssl = { version = "0.10.75", features = ["vendored"] } # vendored required for codesigning
 
 # AWS
-reqwest = { version = "0.12.25", default-features = false, features = ["rustls-tls"] }
-aws-types = "1.3.10"
-aws-runtime = "1.5.13"
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls"] }
+aws-types = "1.3.11"
+aws-runtime = "1.5.17"
 aws-config = { version = "1.6.3", features = ["rustls"] }
 aws-sdk-sts = { version = "1.68.0", features = ["rustls"] }
 aws-sdk-glue = { version = "1.99.0", features = ["rustls"] }
 
 # Specific application
 clap = { version = "4.5.53", features = ["derive"] }
-clap_complete = "4.5.61"
+clap_complete = "4.5.62"
 rdkafka = { version = "0.38.0", features = ["default", "ssl", "zstd"] }
 aws-msk-iam-sasl-signer = "1.0.0"
 uuid = { version = "1.19.0", features = ["v4"] }
 apache-avro = "0.20.0"
-serde_json = "1.0.145"
+serde_json = "1.0.147"
 murmur2 = "0.1.0"
 levenshtein = "1.0.5"
 dialoguer = "0.12.0"
@@ -42,7 +42,7 @@ flate2 = "1.1.5"
 [dev-dependencies]
 assert_cmd = "2.1.1"
 predicates = "3.1.3"
-assertables = "9.8.2"
+assertables = "9.8.3"
 
 [profile.release]
 strip = true # Omit debug symbols for panics in favor of smaller binary
