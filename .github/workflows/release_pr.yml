@@ -32,7 +32,7 @@ jobs:
           echo "version=$(cargo get package.version)" >> $GITHUB_OUTPUT
       - name: Create pull request
         id: create_pr
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: release/${{ steps.update_version.outputs.version }}
           title: "Release ${{ steps.update_version.outputs.version }}"

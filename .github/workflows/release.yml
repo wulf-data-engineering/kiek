@@ -113,7 +113,7 @@ jobs:
       - name: Upload Homebrew formula
         run: mv kiek.rb Formula/kiek.rb
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.BREW_TAP_PAT }}
           title: 'Update formula for kiek ${{needs.build.outputs.version}}'
