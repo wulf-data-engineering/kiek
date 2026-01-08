@@ -27,7 +27,7 @@ jobs:
       - name: Build
         run: cargo build --locked
       - name: Run docker compose
-        uses: hoverkraft-tech/compose-action@v2.4.1
+        uses: hoverkraft-tech/compose-action@v2.4.3
         with:
           compose-file: "./docker-compose.yml"
       - name: Install cargo-nextest
