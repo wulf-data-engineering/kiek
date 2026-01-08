@@ -2,17 +2,28 @@ version: 2
 updates:
   - package-ecosystem: "cargo"
     directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "thursday"
+    schedule: &daily-schedule
+      interval: "daily"
       time: "09:00"
       timezone: "Europe/Berlin"
     groups:
+      aws-dependencies:
+        patterns:
+          - "aws*"
+        update-types:
+          - "major"
       dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "aws*"
         update-types:
           - "minor"
           - "patch"
   - package-ecosystem: "github-actions"
     directory: "/"
-    schedule:
-      interval: "monthly"
+    schedule: *daily-schedule
+    groups:
+      dependencies:
+        patterns:
+          - "*"
