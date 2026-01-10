@@ -77,7 +77,7 @@ async fn list_topics_no_topics_available() -> Result<(), Box<dyn std::error::Err
     let mut client_config = ClientConfig::new();
     client_config.set("bootstrap.servers", "127.0.0.1:9092");
 
-    let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(2)));
+    let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(10)));
 
     let admin_client: AdminClient<_> = client_config
         .create()
@@ -107,7 +107,7 @@ async fn empty_topic(topic_name: &str, partitions: i32) -> Result<(), Box<dyn st
     let mut client_config = ClientConfig::new();
     client_config.set("bootstrap.servers", "127.0.0.1:9092");
 
-    let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(2)));
+    let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(10)));
 
     let admin_client: AdminClient<_> = client_config
         .create()
