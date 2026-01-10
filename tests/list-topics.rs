@@ -13,6 +13,10 @@ async fn list_topics_with_list_flag() -> Result<(), Box<dyn std::error::Error>> 
     let mut cmd = Command::cargo_bin("kiek")?;
     cmd.arg("--list");
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
 
     let output = cmd.output()?;
     let output = String::from_utf8(output.stdout)?;
@@ -33,6 +37,10 @@ async fn list_topics_with_list_topics_flag() -> Result<(), Box<dyn std::error::E
     let mut cmd = Command::cargo_bin("kiek")?;
     cmd.arg("--list-topics");
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
 
     let output = cmd.output()?;
     let output = String::from_utf8(output.stdout)?;
@@ -52,7 +60,7 @@ async fn list_topics_with_custom_broker() -> Result<(), Box<dyn std::error::Erro
     let mut cmd = Command::cargo_bin("kiek")?;
     cmd.arg("--list");
     cmd.arg("--bootstrap-servers");
-    cmd.arg("127.0.0.1:9092");
+    cmd.arg(std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS").unwrap_or("127.0.0.1:9092".into()));
     cmd.arg("--no-colors");
 
     let output = cmd.output()?;
@@ -75,7 +83,10 @@ async fn list_topics_no_topics_available() -> Result<(), Box<dyn std::error::Err
     ];
 
     let mut client_config = ClientConfig::new();
-    client_config.set("bootstrap.servers", "127.0.0.1:9092");
+    client_config.set(
+        "bootstrap.servers",
+        std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS").unwrap_or("127.0.0.1:9092".into()),
+    );
 
     let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(10)));
 
@@ -91,6 +102,10 @@ async fn list_topics_no_topics_available() -> Result<(), Box<dyn std::error::Err
     let mut cmd = Command::cargo_bin("kiek")?;
     cmd.arg("--list");
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
 
     let output = cmd.output()?;
     let output = String::from_utf8(output.stdout)?;
@@ -105,7 +120,10 @@ async fn list_topics_no_topics_available() -> Result<(), Box<dyn std::error::Err
 // Helper function
 async fn empty_topic(topic_name: &str, partitions: i32) -> Result<(), Box<dyn std::error::Error>> {
     let mut client_config = ClientConfig::new();
-    client_config.set("bootstrap.servers", "127.0.0.1:9092");
+    client_config.set(
+        "bootstrap.servers",
+        std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS").unwrap_or("127.0.0.1:9092".into()),
+    );
 
     let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(10)));
 

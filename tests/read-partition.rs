@@ -22,6 +22,10 @@ async fn read_nothing() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg("--timeout=1");
 
     let output = cmd.output()?;
@@ -51,6 +55,10 @@ async fn read_from_beginning() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg("--max=2");
     cmd.arg("--timeout=10");
 
@@ -78,6 +86,10 @@ async fn read_from_end() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg("--latest");
     cmd.arg("--max=1");
     cmd.arg("--timeout=5");
@@ -131,6 +143,10 @@ async fn filter_key_and_value() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg("--max=4");
     cmd.arg("--filter=baz");
     cmd.arg("--timeout=5");
@@ -194,6 +210,10 @@ async fn scan_for_key() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg("--max=2");
     cmd.arg(format!("--key={scanned_key}"));
     cmd.arg("--timeout=5");
@@ -250,6 +270,10 @@ async fn scan_for_key_with_wrong_partitioning() -> Result<(), Box<dyn std::error
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg("-v");
     cmd.arg(format!("--key={scanned_key}"));
     cmd.arg("--timeout=5");
@@ -301,6 +325,10 @@ async fn read_with_from_relative_date() -> Result<(), Box<dyn std::error::Error>
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg("-v");
     cmd.arg("--max=4");
     cmd.arg("--from=-1s");
@@ -331,6 +359,10 @@ async fn read_from_now() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg("--from=now");
     cmd.arg("--max=1");
     cmd.arg("--timeout=5");
@@ -418,6 +450,10 @@ async fn read_from_to_relative_dates() -> Result<(), Box<dyn std::error::Error>>
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg("-v");
     cmd.arg(format!("--from=-{}s", 2 * wait));
     cmd.arg(format!("--to=-{}s", wait));
@@ -503,6 +539,10 @@ async fn read_from_to_absolute_dates() -> Result<(), Box<dyn std::error::Error>>
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg("-v");
     cmd.arg(format!("--from={}", from.format("%Y-%m-%d %H:%M:%S")));
     cmd.arg(format!("--to={}", to.format("%Y-%m-%d %H:%M:%S")));
@@ -553,6 +593,10 @@ async fn read_compressed() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.arg(topic_name);
     cmd.arg("--no-colors");
+    if let Ok(bootstrap_servers) = std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS") {
+        cmd.arg("--bootstrap-servers");
+        cmd.arg(bootstrap_servers);
+    }
     cmd.arg(format!("--max={}", compressions.len()));
     cmd.arg("--timeout=5");
 
@@ -572,7 +616,10 @@ async fn read_compressed() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn empty_topic(topic_name: &str, partitions: i32) -> Result<(), Box<dyn std::error::Error>> {
     let mut client_config = ClientConfig::new();
-    client_config.set("bootstrap.servers", "127.0.0.1:9092");
+    client_config.set(
+        "bootstrap.servers",
+        std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS").unwrap_or("127.0.0.1:9092".into()),
+    );
 
     let opts = AdminOptions::default().request_timeout(Some(std::time::Duration::from_secs(10)));
 
@@ -602,7 +649,10 @@ where
     I: IntoIterator<Item = (&'static str, &'static str)>,
 {
     let mut client_config = ClientConfig::new();
-    client_config.set("bootstrap.servers", "127.0.0.1:9092");
+    client_config.set(
+        "bootstrap.servers",
+        std::env::var("KIEK_TEST_BOOTSTRAP_SERVERS").unwrap_or("127.0.0.1:9092".into()),
+    );
     client_config.set("partitioner", "murmur2_random"); // the Java client partitioner
     client_config.set("compression.type", compression.unwrap_or("none"));
 
