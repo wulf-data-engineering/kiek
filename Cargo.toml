@@ -37,7 +37,7 @@ reachable = { version = "0.2.3", features = ["default"] }
 aws-credential-types = "1.2.11"
 termion = "4.0.6"
 bigdecimal = "0.4.10"
-flate2 = "1.1.5"
+flate2 = "1.1.8"
 
 [dev-dependencies]
 assert_cmd = "2.1.1"
