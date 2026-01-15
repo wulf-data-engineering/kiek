@@ -1,10 +1,32 @@
 version: 2
+enable-beta-ecosystems: true
+
+multi-ecosystem-groups:
+  - name: "bulk-update" # Closed by close-failed-dependabot-prs.yml to allow granular updates to run at 07:00
+    schedule:
+      interval: "daily"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    labels:
+      - "bulk"
+
 updates:
+  # --- 06:00 Bulk Run (directory "./" hack for dual schedule) ---
+  - package-ecosystem: "cargo"
+    directory: "./"
+    multi-ecosystem-group: "bulk-update"
+    patterns: ["*"]
+
+  - package-ecosystem: "github-actions"
+    directory: "./"
+    multi-ecosystem-group: "bulk-update"
+    patterns: ["*"]
+  # --- 07:00 Granular Runs (directory "/") ---
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
       interval: "daily"
-      time: "09:00"
+      time: "07:00"
       timezone: "Europe/Berlin"
     groups:
       aws-dependencies:
@@ -15,8 +37,6 @@ updates:
       dependencies:
         patterns:
           - "*"
-        exclude-patterns:
-          - "aws*"
         update-types:
           - "minor"
           - "patch"
@@ -24,9 +44,5 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
-      time: "09:00"
+      time: "07:00"
       timezone: "Europe/Berlin"
-    groups:
-      dependencies:
-        patterns:
-          - "*"
