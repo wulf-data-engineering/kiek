@@ -23,7 +23,7 @@ aws-sdk-sts = { version = "1.96.0", features = ["rustls"] }
 aws-sdk-glue = { version = "1.135.0", features = ["rustls"] }
 
 # Specific application
-clap = { version = "4.5.54", features = ["derive"] }
+clap = { version = "4.5.55", features = ["derive"] }
 clap_complete = "4.5.65"
 rdkafka = { version = "0.39.0", features = ["default", "ssl", "zstd"] }
 aws-msk-iam-sasl-signer = "1.0.0"
