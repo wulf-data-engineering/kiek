@@ -11,19 +11,19 @@ log = "0.4.29"
 simple_logger = "5.0.0"
 serde = "1.0.228"
 chrono = "0.4.43"
-regex = "1.12.2"
+regex = "1.12.3"
 openssl = { version = "0.10.75", features = ["vendored"] } # vendored required for codesigning
 reqwest = { version = "0.13.1", default-features = false, features = ["rustls"] }
 
 # AWS
 aws-types = "1.3.11"
-aws-runtime = "1.5.18"
-aws-config = { version = "1.8.12", features = ["rustls"] }
+aws-runtime = "1.6.0"
+aws-config = { version = "1.8.13", features = ["rustls"] }
 aws-sdk-sts = { version = "1.96.0", features = ["rustls"] }
-aws-sdk-glue = { version = "1.135.0", features = ["rustls"] }
+aws-sdk-glue = { version = "1.136.0", features = ["rustls"] }
 
 # Specific application
-clap = { version = "4.5.56", features = ["derive"] }
+clap = { version = "4.5.57", features = ["derive"] }
 clap_complete = "4.5.65"
 rdkafka = { version = "0.39.0", features = ["default", "ssl", "zstd"] }
 aws-msk-iam-sasl-signer = "1.0.1"
