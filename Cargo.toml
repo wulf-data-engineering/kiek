@@ -16,11 +16,11 @@ openssl = { version = "0.10.75", features = ["vendored"] } # vendored required f
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }
 
 # AWS
-aws-types = "1.3.13"
-aws-runtime = "1.7.1"
-aws-config = { version = "1.8.14", features = ["rustls"] }
+aws-types = "1.3.14"
+aws-runtime = "1.7.2"
+aws-config = { version = "1.8.15", features = ["rustls"] }
 aws-sdk-sts = { version = "1.99.0", features = ["rustls"] }
-aws-sdk-glue = { version = "1.139.0", features = ["rustls"] }
+aws-sdk-glue = { version = "1.140.0", features = ["rustls"] }
 
 # Specific application
 clap = { version = "4.5.60", features = ["derive"] }
