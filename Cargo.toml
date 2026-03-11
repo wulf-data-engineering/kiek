@@ -40,7 +40,7 @@ bigdecimal = "0.4.10"
 flate2 = "1.1.9"
 
 [dev-dependencies]
-assert_cmd = "2.1.1"
+assert_cmd = "2.2.0"
 predicates = "3.1.4"
 assertables = "9.8.6"
 
