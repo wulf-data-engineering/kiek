@@ -12,7 +12,7 @@ simple_logger = "5.2.0"
 serde = "1.0.228"
 chrono = "0.4.44"
 regex = "1.12.3"
-openssl = { version = "0.10.75", features = ["vendored"] } # vendored required for codesigning
+openssl = { version = "0.10.76", features = ["vendored"] } # vendored required for codesigning
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }
 
 # AWS
