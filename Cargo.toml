@@ -24,7 +24,7 @@ aws-sdk-glue = { version = "1.145.0", features = ["rustls"] }
 
 # Specific application
 clap = { version = "4.6.1", features = ["derive"] }
-clap_complete = "4.6.4"
+clap_complete = "4.6.5"
 rdkafka = { version = "0.39.0", features = ["default", "ssl", "zstd"] }
 aws-msk-iam-sasl-signer = "1.0.1"
 uuid = { version = "1.23.1", features = ["v4"] }
@@ -40,7 +40,7 @@ bigdecimal = "0.4.10"
 flate2 = "1.1.9"
 
 [dev-dependencies]
-assert_cmd = "2.2.1"
+assert_cmd = "2.2.2"
 predicates = "3.1.4"
 assertables = "9.9.0"
 
